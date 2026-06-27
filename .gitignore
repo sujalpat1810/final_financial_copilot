@@ -1,0 +1,54 @@
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+.env
+*.env
+.env.local
+.env.*.local
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Data / indexes (large binary files, rebuilt on first run) ─────────────────
+data/faiss_index*
+data/bm25_index.pkl
+data/chunk_store.json
+data/chroma_db/
+data/tmp_upload.pdf
+
+# ── Generated sample PDF (reproducible from the .txt) ────────────────────────
+data/sample_reports/acme_annual_report_2023.pdf
+
+# ── Model cache (downloaded automatically by sentence-transformers) ───────────
+.cache/
+*.cache
+
+# ── Testing / coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
