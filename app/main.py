@@ -42,6 +42,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -154,11 +155,16 @@ async def ingest(
     tmp_path.write_bytes(content)
 
     try:
-        doc_id, chunks = ingest_pdf(
+        # run_in_threadpool: ingest_pdf parses and chunks synchronously, and a
+        # 300-page 30 MB integrated annual report takes minutes. Called directly it
+        # would block the event loop for the whole time, so /health and /documents
+        # would hang too and the UI would look dead rather than busy.
+        doc_id, chunks = await run_in_threadpool(
+            ingest_pdf,
             str(tmp_path),
             doc_name or Path(file.filename).stem,
-            entity=entity,
-            fiscal_year=fiscal_year,
+            entity,
+            fiscal_year,
         )
     except (AlreadyIndexed, ContentConflict) as e:
         # 409, not 422: the request is well-formed, it conflicts with existing state.
@@ -176,13 +182,15 @@ async def ingest(
     # Embed all chunks
     embed: EmbeddingModel = _state["embed"]
     texts = [c.text for c in chunks]
-    embeddings = embed.embed_documents(texts)
+    embeddings = await run_in_threadpool(embed.embed_documents, texts)
 
-    # Add to vector store
-    _state["vs"].add_chunks(chunks, embeddings)
+    # Add to vector store (writes the FAISS index + sidecar to disk)
+    await run_in_threadpool(_state["vs"].add_chunks, chunks, embeddings)
 
-    # Add to BM25 index (rebuild in-memory)
-    _state["bm25"].add_chunks(chunks)
+    # Add to BM25 index. BM25Plus is immutable, so add_chunks re-tokenises and
+    # rebuilds the whole corpus — on a multi-document index that is seconds of
+    # CPU, not milliseconds, so it does not belong on the event loop either.
+    await run_in_threadpool(_state["bm25"].add_chunks, chunks)
 
     log.info("Ingested '%s': %d chunks across %d pages", doc_name, len(chunks),
              len({c.metadata.page_number for c in chunks}))

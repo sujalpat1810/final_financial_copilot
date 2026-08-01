@@ -1,0 +1,20 @@
+[
+  {
+    "file": "pdf_data/infosys-ar-25.pdf",
+    "doc_name": "Infosys FY2024-25",
+    "entity": "Infosys",
+    "fiscal_year": "FY2024-25"
+  },
+  {
+    "file": "pdf_data/infosys-ar-26.pdf",
+    "doc_name": "Infosys FY2025-26",
+    "entity": "Infosys",
+    "fiscal_year": "FY2025-26"
+  },
+  {
+    "file": "pdf_data/annual-report-2024-2025.pdf",
+    "doc_name": "TCS FY2024-25",
+    "entity": "TCS",
+    "fiscal_year": "FY2024-25"
+  }
+]
