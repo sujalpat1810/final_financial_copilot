@@ -11,6 +11,7 @@ Endpoints:
   GET  /documents/{doc_id}/file   — serve the original PDF, so a citation can
                                     open the page it came from
   GET  /health                    — check service status
+  GET  /app                       — the frontend (static files, no build step)
 
 Startup sequence:
   1. Instantiate the embedding model (downloads ~80 MB on first run).
@@ -45,6 +46,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import cfg
 from app.confidence import assess, relevance
@@ -369,7 +371,7 @@ async def get_document_file(doc_id: str):
 # ── GET /health ───────────────────────────────────────────────────────────────
 
 @app.get("/health", response_model=HealthResponse)
-async def health():
+async def health_check():
     vs = _state.get("vs")
     chunk_count = vs.get_chunk_count() if vs else 0
     return HealthResponse(
@@ -380,3 +382,18 @@ async def health():
         generation_available=bool(cfg.gemini_api_key),
         documents_indexed=chunk_count,
     )
+
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+# Mounted LAST and under /app, so it can never shadow an API route: StaticFiles
+# at "/" would swallow /query and /documents.
+#
+# This is why the frontend is served rather than opened from disk. ES modules and
+# the PDF.js worker are both blocked over file://, so the module split and the
+# source viewer are only possible same-origin. There is still no build step and
+# no npm — these are plain static files.
+_FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+if _FRONTEND.is_dir():
+    app.mount("/app", StaticFiles(directory=str(_FRONTEND), html=True), name="frontend")
+else:
+    log.warning("frontend/ not found at %s; UI will not be served.", _FRONTEND)

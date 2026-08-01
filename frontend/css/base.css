@@ -1,0 +1,84 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   RESET + BASE ELEMENTS
+   ══════════════════════════════════════════════════════════════════════════ */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+
+body{
+  font-family:var(--sans);
+  font-size:var(--t-body);
+  color:var(--ink-1);
+  background:var(--bg);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* Numbers are the hero. Tabular figures everywhere a digit can appear, so
+   columns of figures line up and a changing value doesn't shift its neighbours.
+   Applied by class rather than globally: proportional digits read better in
+   running prose. */
+.num,.mono{
+  font-family:var(--mono);
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:'tnum' 1;
+}
+/* Prose keeps the sans face but still gets tabular figures, so an inline
+   ₹1,62,990 doesn't wobble against the surrounding text. */
+.tnum{font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1}
+
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,textarea,select{font:inherit;color:inherit}
+a{color:var(--accent)}
+
+/* Visible focus is non-negotiable — the whole citation flow is keyboard
+   reachable and the ring is how you know where you are. */
+:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+  border-radius:2px;
+}
+/* Only suppress the ring for pointer users who already have :hover feedback. */
+:focus:not(:focus-visible){outline:none}
+
+/* ── Icons ────────────────────────────────────────────────────────────────
+   Lucide, as an inline SVG sprite. Emoji render inconsistently across
+   platforms and read as informal; a vendored sprite also means zero external
+   requests. */
+svg.i{
+  width:14px;height:14px;flex:none;
+  stroke:currentColor;fill:none;
+  stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+}
+svg.i-sm{width:12px;height:12px}
+svg.i-lg{width:16px;height:16px}
+
+/* ── Shared label ── */
+.lbl{
+  font-size:var(--t-micro);
+  font-weight:600;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+  color:var(--ink-3);
+}
+
+.visually-hidden{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+}
+
+/* No decorative animation. Loading and state transitions only, and nothing at
+   all for anyone who has asked for reduced motion. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+  }
+}
+
+/* Projected in meeting rooms and printed for files — make both work. */
+@media print{
+  body{background:#fff}
+  .sidebar,.composer,.panel,.mockbar{display:none !important}
+  .card{break-inside:avoid;border-color:#999}
+}

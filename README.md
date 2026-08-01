@@ -174,6 +174,37 @@ The standalone/consolidated `basis` **is** detected, from the report's own
 section structure rather than keywords — see `app/basis.py`. It falls back to
 undetermined rather than guessing, and undetermined qualifies the answer.
 
+```bash
+python -m scripts.ingest --dry-run    # report what would happen, load no models
+python -m scripts.ingest              # ingest everything in the manifest
+```
+
+Ingestion is driven by `scripts/corpus.json`, never by globbing `pdf_data/`, so a
+file sitting in that directory is not ingested unless it is named in the manifest.
+Already-indexed documents with identical content are skipped, so a re-run after an
+interruption costs a hash rather than a re-parse.
+
+#### Documents deliberately excluded
+
+**`infosys-ar-99.pdf` (FY1998-99) is not in the manifest and should not be added.**
+Two reasons, both measured:
+
+- It is pre-Ind-AS and contains none of the section headings `app/basis.py` relies
+  on: **0 markers across all 228 pages**, so every figure from it would be labelled
+  "basis not determined".
+- Its financials are restated under US, Australian, Canadian, French, German and
+  Japanese GAAP, some marked *(Unaudited)*. That contamination is **not** confined
+  to one back-section block — `US GAAP` / `Unaudited` appear on 24 pages scattered
+  through the document (p2, p49, p73, p109, p190, p212–219, p226 among others), so
+  it cannot be fixed by excluding a page range. Serving an unaudited French-GAAP
+  figure as "the revenue" is exactly the failure mode this tool exists to prevent,
+  and reporting basis is a third axis the `basis` field does not model.
+
+The three-document corpus still exercises every ambiguity the UI must handle:
+cross-year (FY2024-25 vs FY2025-26, plus each report's comparative column),
+cross-entity (Infosys vs TCS), standalone-vs-consolidated (both, in both), and
+abstention (any question about an unindexed company).
+
 ### 4. Run the tests
 
 ```bash

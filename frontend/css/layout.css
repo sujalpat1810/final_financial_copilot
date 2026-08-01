@@ -1,0 +1,108 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   SHELL — header, sidebar, reading column, source panel
+   ══════════════════════════════════════════════════════════════════════════ */
+.shell{height:100%;display:flex;flex-direction:column}
+
+/* ── Header ────────────────────────────────────────────────────────────────
+   Carries no model vendor name. A client should not read the name of a
+   third-party LLM as the second thing on the screen. */
+.header{
+  height:var(--header-h);flex:none;
+  display:flex;align-items:center;gap:14px;
+  padding:0 14px;
+  background:var(--surface);
+  border-bottom:1px solid var(--line);
+}
+.wordmark{display:flex;align-items:center;gap:9px}
+.wordmark .glyph{
+  width:24px;height:24px;flex:none;
+  border-radius:var(--r-sm);
+  background:var(--accent);color:#fff;
+  display:grid;place-items:center;
+}
+/* No gradient text anywhere: it costs contrast and legibility for decoration. */
+.wordmark .name{font-size:var(--t-ui);font-weight:650;letter-spacing:-.01em}
+.wordmark .sub{
+  font-size:var(--t-micro);color:var(--ink-3);
+  letter-spacing:.07em;text-transform:uppercase;
+}
+.hsep{width:1px;height:20px;background:var(--line);flex:none}
+.hspacer{flex:1}
+.hstat{
+  display:flex;align-items:center;gap:5px;
+  font-size:var(--t-meta);color:var(--ink-2);white-space:nowrap;
+}
+.hstat .v{color:var(--ink-1);font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--mute);flex:none}
+.dot.ok{background:var(--ok)}
+.dot.bad{background:var(--stop)}
+
+/* ── Body row ── */
+.row{flex:1;display:flex;min-height:0}
+
+.sidebar{
+  width:var(--sidebar-w);flex:none;
+  background:var(--surface);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+}
+.side-sec{padding:12px;border-bottom:1px solid var(--line);flex:none}
+.side-hd{display:flex;align-items:center;gap:6px;margin-bottom:9px}
+
+.main{flex:1;display:flex;min-width:0}
+.column{flex:1;display:flex;flex-direction:column;min-width:0}
+
+.stream{flex:1;overflow-y:auto;padding:16px;min-width:0}
+/* A measure, not full-bleed. Dense is the goal; unbounded line length is not. */
+.stream-inner{max-width:var(--read-w)}
+
+/* ── Composer ── */
+.composer{
+  flex:none;border-top:1px solid var(--line);
+  background:var(--surface);padding:10px 16px 12px;
+}
+.composer-in{max-width:var(--read-w)}
+
+/* ── Source panel ─────────────────────────────────────────────────────────
+   A side panel, not a modal: the answer has to stay visible while the source
+   is open, or the reader loses what they were checking. */
+.panel{
+  width:var(--panel-w);flex:none;
+  background:var(--surface);border-left:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+}
+.panel[hidden]{display:none}
+.panel-hd{
+  flex:none;display:flex;align-items:center;gap:8px;
+  padding:9px 11px;
+  border-bottom:1px solid var(--line);background:var(--surface-sunk);
+}
+.panel-bd{flex:1;overflow:auto;padding:13px;background:#e9ecef}
+.panel-ft{
+  flex:none;border-top:1px solid var(--line);
+  padding:9px 11px;background:var(--surface-sunk);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — the layout has to hold at tablet width
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width:1180px){
+  :root{--panel-w:370px}
+}
+
+/* Below this the panel would squeeze the answer past readability, so it
+   becomes an overlay — still not a modal over the answer's centre, but docked
+   right where it does not displace the reading column's layout. */
+@media (max-width:1000px){
+  :root{--sidebar-w:196px}
+  .panel{
+    position:fixed;inset:0 0 0 auto;
+    width:min(var(--panel-w),84vw);
+    z-index:20;box-shadow:-3px 0 16px rgba(0,0,0,.15);
+  }
+}
+
+@media (max-width:720px){
+  .sidebar{display:none}
+  .header{gap:10px}
+  .stream{padding:12px}
+}
