@@ -5,10 +5,12 @@ Run with:
     uvicorn app.main:app --reload
 
 Endpoints:
-  POST /ingest          — upload a PDF for indexing
-  POST /query           — ask a question with optional metadata filters
-  GET  /documents       — list all ingested documents
-  GET  /health          — check service status
+  POST /ingest                    — upload a PDF for indexing
+  POST /query                     — ask a question with optional metadata filters
+  GET  /documents                 — list all ingested documents
+  GET  /documents/{doc_id}/file   — serve the original PDF, so a citation can
+                                    open the page it came from
+  GET  /health                    — check service status
 
 Startup sequence:
   1. Instantiate the embedding model (downloads ~80 MB on first run).
@@ -26,6 +28,7 @@ Latency logging:
 from __future__ import annotations
 
 import io
+import re
 import time
 import logging
 
@@ -40,11 +43,19 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app.config import cfg
 from app.confidence import assess, relevance
 from app.generation import generate_answer
-from app.ingestion import get_all_chunks, ingest_pdf, list_documents
+from app.ingestion import (
+    AlreadyIndexed,
+    ContentConflict,
+    get_all_chunks,
+    get_document,
+    ingest_pdf,
+    list_documents,
+)
 from app.models import (
     DocumentListResponse,
     HealthResponse,
@@ -149,9 +160,14 @@ async def ingest(
             entity=entity,
             fiscal_year=fiscal_year,
         )
+    except (AlreadyIndexed, ContentConflict) as e:
+        # 409, not 422: the request is well-formed, it conflicts with existing state.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
     finally:
+        # ingest_pdf has already copied the PDF into the store, so discarding the
+        # temp upload no longer loses the only copy.
         tmp_path.unlink(missing_ok=True)
 
     if not chunks:
@@ -294,6 +310,51 @@ async def query(req: QueryRequest):
 async def list_docs():
     docs = list_documents()
     return DocumentListResponse(documents=docs, total=len(docs))
+
+
+# ── GET /documents/{doc_id}/file ──────────────────────────────────────────────
+
+# doc_id is sha256(doc_name)[:16]. Validated rather than trusted: the lookup is a
+# dict access so traversal is not reachable, but rejecting junk early keeps a
+# malformed id from being reported as "document not found".
+_DOC_ID = re.compile(r"^[0-9a-f]{16}$")
+
+
+@app.get("/documents/{doc_id}/file")
+async def get_document_file(doc_id: str):
+    """
+    Serve the original PDF so a citation can open its source page.
+
+    Inline rather than attachment: the frontend renders this in a side panel with
+    PDF.js, and Content-Disposition: attachment would make the browser download it.
+    """
+    if not _DOC_ID.match(doc_id):
+        raise HTTPException(status_code=400, detail="Malformed doc_id.")
+
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Unknown doc_id.")
+
+    path = doc.get("file_path")
+    if not path or not Path(path).exists():
+        # Distinct from an unknown doc_id: the document is indexed but its PDF is
+        # missing — either ingested before PDFs were persisted, or deleted since.
+        raise HTTPException(
+            status_code=404,
+            detail=f"No stored PDF for '{doc['doc_name']}'. Re-ingest it to enable "
+                   f"the source viewer.",
+        )
+
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{doc_id}.pdf"',
+            # The stored file is immutable for a given doc_id: a changed document
+            # is refused as a ContentConflict rather than overwriting this path.
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
 
 
 # ── GET /health ───────────────────────────────────────────────────────────────

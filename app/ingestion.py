@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -228,6 +229,52 @@ def _save_chunk_store(store: dict[str, Any]) -> None:
         json.dump(store, f, indent=2)
 
 
+# ── Re-ingest guards ──────────────────────────────────────────────────────────
+# doc_id is sha256(doc_name), so re-ingesting under the same name collides.
+# Chunk ids collide too, but the FAISS sidecar just APPENDS — so a silent
+# re-ingest double-indexes every chunk, and FAISS has no delete to undo it.
+# These make both cases explicit instead of quietly corrupting the index.
+
+class AlreadyIndexed(Exception):
+    """Same document name, byte-identical content. Nothing to do."""
+
+    def __init__(self, doc_id: str, doc_name: str) -> None:
+        self.doc_id = doc_id
+        self.doc_name = doc_name
+        super().__init__(f"'{doc_name}' is already indexed with identical content.")
+
+
+class ContentConflict(Exception):
+    """Same document name, different content — refused rather than double-indexed."""
+
+    def __init__(self, doc_id: str, doc_name: str) -> None:
+        self.doc_id = doc_id
+        self.doc_name = doc_name
+        super().__init__(
+            f"'{doc_name}' is already indexed with different content. The vector "
+            f"store cannot delete the old chunks, so re-ingesting would index this "
+            f"document twice. Either ingest under a different name, or clear "
+            f"{cfg.chunk_store_path} and the index and start over."
+        )
+
+
+def file_sha256(path: str | Path) -> str:
+    """Content hash, used to tell a re-run from a changed document."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def stored_pdf_path(doc_id: str) -> Path:
+    return Path(cfg.pdf_store_dir) / f"{doc_id}.pdf"
+
+
+def get_document(doc_id: str) -> dict[str, Any] | None:
+    return _load_chunk_store()["documents"].get(doc_id)
+
+
 # ── Main ingestion entry point ────────────────────────────────────────────────
 
 def ingest_pdf(
@@ -252,6 +299,14 @@ def ingest_pdf(
 
     doc_name = doc_name or Path(pdf_path).stem
     doc_id = hashlib.sha256(doc_name.encode()).hexdigest()[:16]
+
+    # Check for a re-ingest BEFORE doing minutes of parsing and embedding.
+    content_sha = file_sha256(pdf_path)
+    existing = _load_chunk_store()["documents"].get(doc_id)
+    if existing:
+        if existing.get("content_sha256") == content_sha:
+            raise AlreadyIndexed(doc_id, doc_name)
+        raise ContentConflict(doc_id, doc_name)
 
     pages = _extract_pages(pdf_path)
     if not pages:
@@ -290,6 +345,12 @@ def ingest_pdf(
             ))
             chunk_idx += 1
 
+    # Keep the original PDF so citations can open their source page.  The upload
+    # path used to be unlinked in a finally block, which discarded the only copy.
+    stored_pdf = stored_pdf_path(doc_id)
+    stored_pdf.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(pdf_path, stored_pdf)
+
     # Persist doc registry
     store = _load_chunk_store()
     store["documents"][doc_id] = {
@@ -301,6 +362,8 @@ def ingest_pdf(
         "fiscal_year": fiscal_year,
         "standalone_pages": sum(1 for b in page_basis if b == "standalone"),
         "consolidated_pages": sum(1 for b in page_basis if b == "consolidated"),
+        "file_path": str(stored_pdf),
+        "content_sha256": content_sha,
         "ingested_at": datetime.now(timezone.utc).isoformat(),
     }
     for c in chunks:
@@ -315,7 +378,17 @@ def ingest_pdf(
 
 def list_documents() -> list[DocumentInfo]:
     store = _load_chunk_store()
-    return [DocumentInfo(**d) for d in store["documents"].values()]
+    docs = []
+    for raw in store["documents"].values():
+        # The stored dict carries fields DocumentInfo doesn't expose (file_path,
+        # content_sha256), so filter rather than splat — and derive has_file from
+        # the filesystem, not from the record, so a deleted PDF is reported
+        # honestly instead of advertising a link that 404s.
+        fields = {k: v for k, v in raw.items() if k in DocumentInfo.model_fields}
+        path = raw.get("file_path")
+        fields["has_file"] = bool(path) and Path(path).exists()
+        docs.append(DocumentInfo(**fields))
+    return docs
 
 
 def get_chunk_by_id(chunk_id: str) -> Chunk | None:

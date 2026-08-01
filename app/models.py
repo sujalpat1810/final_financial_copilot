@@ -140,6 +140,10 @@ class DocumentInfo(BaseModel):
     # re-scanning, and makes a detection failure visible rather than silent.
     standalone_pages: int = 0
     consolidated_pages: int = 0
+    # Whether the original PDF is on disk and servable. False for documents
+    # ingested before PDFs were persisted, so the UI can present those citations
+    # as non-openable instead of offering a link that 404s.
+    has_file: bool = False
 
 
 class DocumentListResponse(BaseModel):

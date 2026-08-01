@@ -17,8 +17,15 @@ from app.basis import CONSOLIDATED, STANDALONE
 
 @pytest.fixture(autouse=True)
 def isolated_store(tmp_path, monkeypatch):
-    """Keep ingest_pdf's chunk-store writes out of the real data/ directory."""
+    """
+    Keep ingest_pdf's writes out of the real data/ directory.
+
+    Both paths must be redirected: ingest_pdf now also copies the PDF into
+    cfg.pdf_store_dir, so patching only the chunk store leaves stray files in
+    data/pdf_store/.
+    """
     monkeypatch.setattr(ingestion.cfg, "chunk_store_path", str(tmp_path / "chunk_store.json"))
+    monkeypatch.setattr(ingestion.cfg, "pdf_store_dir", str(tmp_path / "pdf_store"))
 
 
 @pytest.fixture
