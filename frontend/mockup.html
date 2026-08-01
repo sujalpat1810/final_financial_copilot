@@ -399,7 +399,7 @@ svg.i-lg{width:16px;height:16px}
 
 <div class="mockbar">
   <b>Static mockup — Phase 0.</b>
-  <span>No backend calls. Figures are illustrative and were <b>not</b> extracted from the PDFs; verify before any demo.</span>
+  <span>No backend calls. Revenue figures, page numbers and basis boundaries are <b>extracted from the real PDFs</b>. Chunk counts and latencies are illustrative.</span>
 </div>
 
 <!-- Lucide sprite. Phase 2 moves this to vendor/icons.svg. Zero external requests. -->
@@ -437,9 +437,9 @@ svg.i-lg{width:16px;height:16px}
     <div class="hsep"></div>
     <div class="hstat">
       <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-files"/></svg>
-      <span class="num stat-v">4</span> documents
+      <span class="num stat-v">3</span> documents
       <span style="color:var(--ink-3)">·</span>
-      <span class="num stat-v">6,412</span> chunks
+      <span class="num stat-v">5,448</span> chunks
     </div>
     <div class="hspacer"></div>
     <button class="pbtn"><svg class="i i-sm"><use href="#i-search"/></svg> About</button>
@@ -487,13 +487,10 @@ svg.i-lg{width:16px;height:16px}
           <div class="doc-m"><span class="num">383</span> pp · <span class="num">1,912</span> chunks</div>
         </div>
         <div class="doc">
-          <div class="doc-n">Infosys FY2023-24</div>
-          <div class="doc-m"><span class="num">341</span> pp · <span class="num">1,689</span> chunks</div>
-        </div>
-        <div class="doc">
           <div class="doc-n">TCS FY2024-25</div>
-          <div class="doc-m"><span class="num">336</span> pp · <span class="num">964</span> chunks</div>
+          <div class="doc-m"><span class="num">336</span> pp · <span class="num">1,689</span> chunks</div>
         </div>
+        <div class="hint" style="padding:8px">Infosys FY2023-24 not yet added — <code>infosys-ar-24.pdf</code> is not in <code>pdf_data/</code>.</div>
       </div>
     </aside>
 
@@ -522,8 +519,8 @@ svg.i-lg{width:16px;height:16px}
                 <div class="ans">
                   <p>
                     Revenue from operations was <span class="fig num">₹1,62,990</span> crore
-                    <button class="prov" onclick="openPanel()" aria-label="Open Infosys FY2024-25, page 112">
-                      <span class="p-ent">Infosys</span><span class="p-fy">FY2024-25</span><span class="p-bas">Consolidated</span><span class="p-pg">p.112</span>
+                    <button class="prov" onclick="openPanel()" aria-label="Open Infosys FY2024-25, page 276">
+                      <span class="p-ent">Infosys</span><span class="p-fy">FY2024-25</span><span class="p-bas">Consolidated</span><span class="p-pg">p.276</span>
                     </button>
                   </p>
                   <p class="col-note">
@@ -549,41 +546,41 @@ svg.i-lg{width:16px;height:16px}
                   <div class="src-t">
                     <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
                     <span class="n">Infosys FY2024-25</span>
-                    <span class="pg">p.112</span>
+                    <span class="pg">p.276</span>
                     <span class="tbl">TABLE</span>
                     <span class="rel">
                       <span class="rel-bar"><i style="width:82%"></i></span>
                       <span class="rel-v">82</span>
                     </span>
                   </div>
-                  <div class="src-x mono">Revenue from operations | 1,62,990 | 1,53,670 &nbsp;·&nbsp; Other income, net | 4,711 | 4,711 &nbsp;·&nbsp; Total income | 1,67,701 | 1,58,381</div>
+                  <div class="src-x mono">Revenue from operations 2.18 | 162,990 | 153,670 &nbsp;·&nbsp; Total income | 166,590 | 158,381 &nbsp;·&nbsp; Profit for the year | 26,750 | 26,248</div>
                 </button>
 
                 <button class="src" onclick="openPanel()">
                   <div class="src-t">
                     <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
                     <span class="n">Infosys FY2024-25</span>
-                    <span class="pg">p.98</span>
+                    <span class="pg">p.196</span>
+                    <span class="tbl">TABLE</span>
                     <span class="rel">
                       <span class="rel-bar"><i style="width:71%"></i></span>
                       <span class="rel-v">71</span>
                     </span>
                   </div>
-                  <div class="src-x">Consolidated revenue for the year grew in reported terms, with growth led by financial services and manufacturing. Digital revenue continued to form the larger share of the overall revenue mix…</div>
+                  <div class="src-x mono">Revenue from operations 2.18 | 1,36,592 | 1,28,933 &nbsp;·&nbsp; Total income | 1,41,374 | 1,36,350 &nbsp;— standalone statement of profit and loss</div>
                 </button>
 
                 <button class="src" onclick="openPanel()">
                   <div class="src-t">
                     <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
                     <span class="n">Infosys FY2024-25</span>
-                    <span class="pg">p.147</span>
-                    <span class="tbl">TABLE</span>
+                    <span class="pg">p.181</span>
                     <span class="rel">
                       <span class="rel-bar"><i style="width:58%"></i></span>
                       <span class="rel-v">58</span>
                     </span>
                   </div>
-                  <div class="src-x mono">Segment revenue | Financial services | Retail | Communication | Energy &amp; utilities | Manufacturing | Hi-tech | Life sciences | Others</div>
+                  <div class="src-x">Standalone Financial Statements under Indian Accounting Standards (Ind AS) for the year ended March 31, 2025 — Index…</div>
                 </button>
               </div>
             </div>
@@ -607,7 +604,7 @@ svg.i-lg{width:16px;height:16px}
                 <div class="ans">
                   <p>
                     The question does not specify an entity, fiscal year or basis. The indexed
-                    documents support <b>six</b> distinct answers:
+                    documents support <b>seven</b> distinct answers:
                   </p>
 
                   <table class="ftab">
@@ -621,32 +618,37 @@ svg.i-lg{width:16px;height:16px}
                       <tr>
                         <td>Infosys</td><td class="num">FY2024-25</td><td>Consolidated</td>
                         <td class="num r">1,62,990</td>
-                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.112</span></button></td>
+                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.276</span></button></td>
                       </tr>
                       <tr>
                         <td>Infosys</td><td class="num">FY2024-25</td><td>Standalone</td>
-                        <td class="num r">1,42,443</td>
+                        <td class="num r">1,36,592</td>
                         <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.196</span></button></td>
                       </tr>
                       <tr>
-                        <td>Infosys</td><td class="num">FY2023-24</td><td>Consolidated</td>
-                        <td class="num r">1,53,670</td>
-                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.104</span></button></td>
+                        <td>Infosys</td><td class="num">FY2025-26</td><td>Consolidated</td>
+                        <td class="num r">1,78,650</td>
+                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.287</span></button></td>
                       </tr>
                       <tr>
-                        <td>Infosys</td><td class="num">FY2025-26</td><td>Consolidated</td>
-                        <td class="num r">1,74,620</td>
-                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.121</span></button></td>
+                        <td>Infosys</td><td class="num">FY2025-26</td><td>Standalone</td>
+                        <td class="num r">1,48,819</td>
+                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.209</span></button></td>
                       </tr>
                       <tr>
                         <td>TCS</td><td class="num">FY2024-25</td><td>Consolidated</td>
                         <td class="num r">2,55,324</td>
-                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.184</span></button></td>
+                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.181</span></button></td>
+                      </tr>
+                      <tr>
+                        <td>TCS</td><td class="num">FY2024-25</td><td>Standalone</td>
+                        <td class="num r">2,14,853</td>
+                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.253</span></button></td>
                       </tr>
                       <tr>
                         <td>TCS</td><td class="num">FY2024-25</td><td><span class="bas-unk">Not determined</span></td>
-                        <td class="num r">2,41,308</td>
-                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.061</span></button></td>
+                        <td class="num r">2,55,324</td>
+                        <td class="r"><button class="prov" onclick="openPanel()"><span class="p-pg">p.069</span></button></td>
                       </tr>
                     </tbody>
                   </table>
@@ -654,9 +656,11 @@ svg.i-lg{width:16px;height:16px}
                   <div class="note">
                     <svg class="i"><use href="#i-warn"/></svg>
                     <div>
-                      The last figure comes from a page outside the financial-statements sections,
-                      so its basis could not be determined from the report's own headings. It is
-                      shown unqualified rather than assumed to be consolidated.
+                      The last figure comes from <b>p.069</b>, a highlights page outside both
+                      financial-statements sections. That page presents standalone and consolidated
+                      revenue <b>side by side in one row</b> with no basis heading, so the basis
+                      cannot be determined from the report's own structure. It is shown unqualified
+                      rather than assumed to be consolidated.
                     </div>
                   </div>
                 </div>
@@ -679,16 +683,17 @@ svg.i-lg{width:16px;height:16px}
                     <span class="tbl">TABLE</span>
                     <span class="rel"><span class="rel-bar"><i style="width:64%"></i></span><span class="rel-v">64</span></span>
                   </div>
-                  <div class="src-x mono">Revenue from operations | 1,42,443 | 1,37,079 &nbsp;·&nbsp; standalone statement of profit and loss</div>
+                  <div class="src-x mono">Revenue from operations 2.18 | 1,36,592 | 1,28,933 &nbsp;— standalone statement of profit and loss</div>
                 </button>
                 <button class="src" onclick="openPanel()">
                   <div class="src-t">
                     <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
                     <span class="n">TCS FY2024-25</span>
-                    <span class="pg">p.061</span>
+                    <span class="pg">p.069</span>
+                    <span class="tbl">TABLE</span>
                     <span class="rel"><span class="rel-bar"><i style="width:41%"></i></span><span class="rel-v">41</span></span>
                   </div>
-                  <div class="src-x">Revenue for the year stood at ₹2,41,308 crore in the ten-year financial highlights table…</div>
+                  <div class="src-x mono">Revenue from operations | 2,14,853 | 2,02,359 | 2,55,324 | 2,40,893 &nbsp;— no basis heading on this page</div>
                 </button>
               </div>
             </div>
@@ -770,7 +775,7 @@ svg.i-lg{width:16px;height:16px}
         <div class="panel-hd">
           <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
           <span class="n">Infosys FY2024-25</span>
-          <span class="pg">p.112 / 369</span>
+          <span class="pg">p.276 / 369</span>
           <div style="flex:1"></div>
           <button class="pbtn"><svg class="i i-sm"><use href="#i-dl"/></svg> PDF</button>
           <button class="pbtn" onclick="closePanel()" aria-label="Close (Escape)">
@@ -781,35 +786,35 @@ svg.i-lg{width:16px;height:16px}
         <div class="panel-bd">
           <div class="page">
             <div class="page-h">
-              <span>Consolidated Financial Statements</span><span>112</span>
+              <span>Consolidated Financial Statements</span><span>Infosys Integrated Annual Report 2024-25</span>
             </div>
             <h4>Consolidated Statement of Profit and Loss</h4>
             <div class="sub">for the year ended March 31, 2025 · in ₹ crore, except per equity share data</div>
             <table>
               <thead><tr><th>Particulars</th><th>Note</th><th>2025</th><th>2024</th></tr></thead>
               <tbody>
-                <tr class="hl"><td>Revenue from operations</td><td>2.16</td><td>1,62,990</td><td>1,53,670</td></tr>
-                <tr><td>Other income, net</td><td>2.17</td><td>4,711</td><td>4,711</td></tr>
-                <tr><td>Total income</td><td></td><td>1,67,701</td><td>1,58,381</td></tr>
-                <tr><td>Employee benefit expenses</td><td>2.18</td><td>90,124</td><td>85,808</td></tr>
-                <tr><td>Cost of technical sub-contractors</td><td></td><td>11,860</td><td>11,566</td></tr>
-                <tr><td>Travel expenses</td><td></td><td>1,842</td><td>1,760</td></tr>
-                <tr><td>Depreciation and amortisation</td><td></td><td>4,730</td><td>4,678</td></tr>
-                <tr><td>Profit before tax</td><td></td><td>34,142</td><td>32,257</td></tr>
-                <tr><td>Profit for the year</td><td></td><td>26,750</td><td>26,233</td></tr>
+                <tr class="hl"><td>Revenue from operations</td><td>2.18</td><td>162,990</td><td>153,670</td></tr>
+                <tr><td>Total income</td><td></td><td>166,590</td><td>158,381</td></tr>
+                <tr><td>Employee benefit expenses</td><td>2.22</td><td>85,950</td><td>82,620</td></tr>
+                <tr><td>Cost of technical sub-contractors</td><td></td><td>12,937</td><td>12,232</td></tr>
+                <tr><td>Cost of software packages and others</td><td>2.20</td><td>15,911</td><td>13,515</td></tr>
+                <tr><td>Total expenses</td><td></td><td>128,982</td><td>122,393</td></tr>
+                <tr><td>Profit before tax</td><td></td><td>37,608</td><td>35,988</td></tr>
+                <tr><td>Current tax</td><td>2.17</td><td>12,130</td><td>8,390</td></tr>
+                <tr><td>Profit for the year</td><td></td><td>26,750</td><td>26,248</td></tr>
               </tbody>
             </table>
             <div class="fn">
-              The accompanying notes form an integral part of these consolidated financial
-              statements. Figures for the year ended March 31, 2024 are presented as comparatives
-              and have been regrouped where necessary.
+              Note the source page groups digits in the Western style (<b>162,990</b>) while the
+              standalone statements in the same report use Indian grouping (<b>1,36,592</b>). The
+              answer above normalises both to <b>₹1,62,990</b>. The page is rendered as published.
             </div>
           </div>
         </div>
 
         <div class="panel-ft">
           <div class="lbl">Retrieved chunk</div>
-          <div class="x">Revenue from operations | 2.16 | 1,62,990 | 1,53,670<br/>Other income, net | 2.17 | 4,711 | 4,711<br/>Total income | | 1,67,701 | 1,58,381</div>
+          <div class="x">Revenue from operations 2.18 | 162,990 | 153,670<br/>Total income | 166,590 | 158,381<br/>Employee benefit expenses 2.22 | 85,950 | 82,620</div>
           <div class="hl-state">
             <svg class="i i-sm"><use href="#i-check"/></svg> Located on page — row highlighted
           </div>
