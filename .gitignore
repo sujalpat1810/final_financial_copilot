@@ -29,8 +29,10 @@ data/chunk_store.json
 data/chroma_db/
 data/tmp_upload.pdf
 
-# ── Generated sample PDF (reproducible from the .txt) ────────────────────────
-data/sample_reports/acme_annual_report_2023.pdf
+# ── Source corpus + served copies (20-40 MB annual reports each) ─────────────
+pdf_data/
+data/pdf_store/
+
 
 # ── Model cache (downloaded automatically by sentence-transformers) ───────────
 .cache/
