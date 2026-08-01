@@ -73,7 +73,35 @@ class SourceCitation(BaseModel):
     page_number: int
     section_title: str | None
     fiscal_year: str | None
-    excerpt: str   # first 200 chars of the chunk
+    excerpt: str
+
+    # ── Addressability ────────────────────────────────────────────────────────
+    # Without doc_id the frontend cannot ask for the PDF at all, so a citation
+    # could never open its source page.  chunk_id lets the viewer locate the
+    # exact chunk rather than re-deriving it from the excerpt.
+    doc_id: str | None = None
+    chunk_id: str | None = None
+
+    # ── Provenance, carried alongside the page number ─────────────────────────
+    # These travel with every citation so a figure is never shown without saying
+    # which entity, year and basis it belongs to.  basis is None when it could
+    # not be determined from the report's structure; the UI must show that as
+    # undetermined rather than resolving it.
+    entity: str | None = None
+    basis: str | None = None
+
+    # ── Scores ────────────────────────────────────────────────────────────────
+    # rerank_score is the raw cross-encoder logit (roughly -11..+11).
+    # relevance is a 0-100 display transform of it — monotone, but NOT a
+    # probability.  Both are returned so the UI never has to invent a number:
+    # the previous frontend faked the score bar as (1 - index/total).
+    rerank_score: float | None = None
+    relevance: int = 0
+
+    # Chunk text came from a reserialised table ([TABLE] markers, pipe-delimited
+    # rows).  Such text will never match the PDF's text layer, so the viewer
+    # skips highlight matching for it instead of showing a wrong highlight.
+    is_table: bool = False
 
 
 class QueryResponse(BaseModel):
@@ -83,7 +111,19 @@ class QueryResponse(BaseModel):
     retrieval_latency_ms: float
     generation_latency_ms: float
     total_latency_ms: float
-    answer_source: str   # "gemini" or "extractive_fallback"
+    answer_source: str   # "generated" or "extractive"
+
+    # ── Confidence + abstention ───────────────────────────────────────────────
+    # Additive: every pre-existing field above keeps its meaning.
+    confidence: str = "insufficient"       # see app/confidence.Confidence
+    confidence_reason: str = ""
+    abstained: bool = False
+    abstention_reason: str | None = None
+
+    # What was searched. Shown on the abstention card: a non-answer that reports
+    # its own scope is useful, where a bare "not found" is not.
+    documents_searched: int = 0
+    chunks_searched: int = 0
 
 
 # ── Document listing ──────────────────────────────────────────────────────────

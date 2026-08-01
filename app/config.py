@@ -58,6 +58,65 @@ class Config:
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
 
+    # ── Confidence + abstention thresholds ────────────────────────────────────
+    # These are RAW CROSS-ENCODER LOGITS, not probabilities.  The reranker
+    # (cross-encoder/ms-marco-MiniLM-L-6-v2) emits unbounded scores, roughly
+    # -11..+11.  Sigmoid saturates hard at both ends — irrelevant passages land
+    # near 0.00002 and good ones near 0.9997 — so thresholding on a squashed
+    # probability would put every decision boundary inside a rounding error.
+    # Compare logits directly instead.
+    #
+    # The defaults below are a STARTING POINT, not calibrated values.  The model
+    # is trained on MS MARCO web passages; its behaviour on dense Ind AS tables
+    # has to be measured.  scripts/calibrate.py dumps the score distribution over
+    # the demo corpus so these can be set from data.  Override via env.
+    #
+    # default_factory, not a bare default: a plain `float(os.getenv(...))` default
+    # is evaluated once when this module is imported, so constructing a second
+    # Config would silently ignore the environment.  The path fields above use
+    # default_factory for the same reason.
+    rerank_high_threshold: float = field(
+        default_factory=lambda: float(os.getenv("RERANK_HIGH_THRESHOLD", "2.0"))
+    )
+    rerank_moderate_threshold: float = field(
+        default_factory=lambda: float(os.getenv("RERANK_MODERATE_THRESHOLD", "-2.0"))
+    )
+    rerank_abstain_threshold: float = field(
+        default_factory=lambda: float(os.getenv("RERANK_ABSTAIN_THRESHOLD", "-6.0"))
+    )
+
+    # Supporting chunks at or above the moderate threshold needed for "high".
+    # One strong match is a single point of failure; agreement is what makes it
+    # high confidence.
+    confidence_min_supporting: int = field(
+        default_factory=lambda: int(os.getenv("CONFIDENCE_MIN_SUPPORTING", "2"))
+    )
+
+    def validate(self) -> None:
+        """
+        Fail loudly on a mis-ordered threshold set.
+
+        Raising at import is harsh, but a silently inverted set produces
+        confidence labels that are meaningless while still looking authoritative
+        — the exact failure this product exists to prevent.  Better to refuse to
+        start than to mislabel every answer.
+        """
+        if not (self.rerank_high_threshold
+                > self.rerank_moderate_threshold
+                > self.rerank_abstain_threshold):
+            raise ValueError(
+                "Confidence thresholds must satisfy "
+                "RERANK_HIGH_THRESHOLD > RERANK_MODERATE_THRESHOLD > "
+                f"RERANK_ABSTAIN_THRESHOLD; got {self.rerank_high_threshold}, "
+                f"{self.rerank_moderate_threshold}, {self.rerank_abstain_threshold}."
+            )
+        if self.confidence_min_supporting < 1:
+            raise ValueError(
+                "CONFIDENCE_MIN_SUPPORTING must be >= 1; got "
+                f"{self.confidence_min_supporting}."
+            )
+
 
 # Singleton — import this everywhere instead of constructing a new Config each time.
 cfg = Config()
+cfg.validate()

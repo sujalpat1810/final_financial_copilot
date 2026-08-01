@@ -42,6 +42,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import cfg
+from app.confidence import assess, relevance
 from app.generation import generate_answer
 from app.ingestion import get_all_chunks, ingest_pdf, list_documents
 from app.models import (
@@ -182,10 +183,45 @@ async def ingest(
 
 # ── POST /query ───────────────────────────────────────────────────────────────
 
+def _to_citations(results) -> list[SourceCitation]:
+    """
+    Structured citation data for the frontend.
+
+    Interaction is driven from these fields, not by regex-parsing "[Page N]" out
+    of the answer prose.  The inline markers stay in the text for readability, but
+    they are not the source of truth for what a citation points at.
+    """
+    citations = []
+    for r in results:
+        m = r.chunk.metadata
+        citations.append(SourceCitation(
+            doc_name=m.doc_name,
+            page_number=m.page_number,
+            section_title=m.section_title,
+            fiscal_year=m.fiscal_year,
+            doc_id=m.doc_id,
+            chunk_id=m.chunk_id,
+            entity=m.entity,
+            basis=m.basis,
+            rerank_score=r.rerank_score,
+            relevance=relevance(r.rerank_score),
+            is_table="[TABLE]" in r.chunk.text,
+            # Longer than the previous 200 chars: the viewer matches this text
+            # against the PDF text layer, and 200 chars is often not a
+            # distinctive enough run to locate confidently.
+            excerpt=r.chunk.text[:600],
+        ))
+    return citations
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest):
-    """Run hybrid retrieval + reranking + Gemini generation."""
+    """Run hybrid retrieval + reranking, then generate — unless evidence is too thin."""
     retriever: HybridRetriever = _state["retriever"]
+    vs = _state.get("vs")
+
+    chunks_searched = vs.get_chunk_count() if vs else 0
+    documents_searched = len(list_documents())
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
     t0 = time.perf_counter()
@@ -198,15 +234,31 @@ async def query(req: QueryRequest):
     )
     retrieval_ms = (time.perf_counter() - t0) * 1000
 
-    if not results:
+    # ── Abstention gate ───────────────────────────────────────────────────────
+    # Assessed BEFORE generation, and generation is skipped entirely when the
+    # evidence is below the floor — nothing is generated and then thrown away.
+    # An empty result set falls out of this naturally: assess([]) is INSUFFICIENT.
+    assessment = assess([r.rerank_score for r in results])
+
+    if assessment.abstained:
+        log.info(
+            "query='%s' ABSTAINED retrieval=%.0fms (%s)",
+            req.question[:60], retrieval_ms, assessment.reason,
+        )
         return QueryResponse(
             question=req.question,
-            answer="No relevant documents found. Please ingest some PDFs first.",
-            sources=[],
+            answer="",                      # deliberately empty: no answer exists
+            sources=_to_citations(results),  # the near-misses, for the UI to show
             retrieval_latency_ms=round(retrieval_ms, 1),
             generation_latency_ms=0.0,
             total_latency_ms=round(retrieval_ms, 1),
             answer_source="none",
+            confidence=assessment.level.value,
+            confidence_reason=assessment.reason,
+            abstained=True,
+            abstention_reason=assessment.abstention_reason,
+            documents_searched=documents_searched,
+            chunks_searched=chunks_searched,
         )
 
     # ── Generation ────────────────────────────────────────────────────────────
@@ -215,29 +267,24 @@ async def query(req: QueryRequest):
     generation_ms = (time.perf_counter() - t1) * 1000
 
     log.info(
-        "query='%s' retrieval=%.0fms generation=%.0fms source=%s",
+        "query='%s' retrieval=%.0fms generation=%.0fms source=%s confidence=%s",
         req.question[:60], retrieval_ms, generation_ms, answer_source,
+        assessment.level.value,
     )
-
-    sources = [
-        SourceCitation(
-            doc_name=r.chunk.metadata.doc_name,
-            page_number=r.chunk.metadata.page_number,
-            section_title=r.chunk.metadata.section_title,
-            fiscal_year=r.chunk.metadata.fiscal_year,
-            excerpt=r.chunk.text[:200],
-        )
-        for r in results
-    ]
 
     return QueryResponse(
         question=req.question,
         answer=answer,
-        sources=sources,
+        sources=_to_citations(results),
         retrieval_latency_ms=round(retrieval_ms, 1),
         generation_latency_ms=round(generation_ms, 1),
         total_latency_ms=round(retrieval_ms + generation_ms, 1),
         answer_source=answer_source,
+        confidence=assessment.level.value,
+        confidence_reason=assessment.reason,
+        abstained=False,
+        documents_searched=documents_searched,
+        chunks_searched=chunks_searched,
     )
 
 
