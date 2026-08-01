@@ -33,8 +33,6 @@ data/tmp_upload.pdf
 pdf_data/
 data/pdf_store/
 
-# ── Generated sample PDF (reproducible from the .txt) ────────────────────────
-data/sample_reports/acme_annual_report_2023.pdf
 
 # ── Model cache (downloaded automatically by sentence-transformers) ───────────
 .cache/

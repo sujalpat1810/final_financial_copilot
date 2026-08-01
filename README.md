@@ -108,14 +108,16 @@ financial_copilot/
 │   ├── retrieval.py      — EmbeddingModel, BM25Index, Reranker, HybridRetriever
 │   ├── generation.py     — Gemini 2.5 Flash call + extractive fallback
 │   └── main.py           — FastAPI routes + startup lifecycle
-├── data/
-│   └── sample_reports/
-│       ├── acme_annual_report_2023.txt   — synthetic 10-K for testing
-│       └── generate_sample_pdf.py        — converts .txt → PDF (needs reportlab)
+├── pdf_data/             — source corpus: real annual reports (gitignored)
+├── scripts/
+│   └── make_basis_fixture.py — regenerates the basis-detection test fixture
 ├── tests/
-│   ├── test_chunking.py  — unit tests for chunking and metadata extraction
-│   └── test_retrieval.py — unit tests for BM25 and merge/dedup logic
-├── demo.py               — standalone end-to-end script (no server needed)
+│   ├── test_basis_detection.py — standalone/consolidated boundaries vs ground truth
+│   ├── test_chunking.py        — unit tests for chunking and heading detection
+│   ├── test_confidence.py      — confidence + abstention decision boundaries
+│   ├── test_ingest_metadata.py — provenance survives ingest onto every chunk
+│   ├── test_query_endpoint.py  — /query contract, incl. the abstention gate
+│   └── test_retrieval.py       — unit tests for BM25 and merge/dedup logic
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -158,21 +160,26 @@ cp .env.example .env
 If you skip this step the system works fine — it returns the top retrieved chunks
 directly instead of a generated answer (the "extractive fallback").
 
-### 3. (Optional) Generate the sample PDF
+### 3. Ingest the corpus
+
+Put real annual reports in `pdf_data/` and ingest them before any demo, never
+live — a 300-page integrated annual report takes minutes to embed.
+
+`entity` and `fiscal_year` are required and are **not** detected from the
+document. An annual report is full of comparative columns, so any heuristic that
+reads a year off the page is guessing, and attributing a figure to the wrong
+company or year is the failure this tool exists to prevent.
+
+The standalone/consolidated `basis` **is** detected, from the report's own
+section structure rather than keywords — see `app/basis.py`. It falls back to
+undetermined rather than guessing, and undetermined qualifies the answer.
+
+### 4. Run the tests
 
 ```bash
-pip install reportlab
-python data/sample_reports/generate_sample_pdf.py
+pytest              # fast: uses the committed basis fixture
+pytest -m slow      # re-verifies basis boundaries against the real PDFs (~2 min)
 ```
-
-### 4. Run the demo script
-
-```bash
-python demo.py
-```
-
-This ingests the sample report and runs 3 example queries end-to-end, printing
-retrieved chunks and the final answer.  No server needed.
 
 ### 5. Start the API server
 
