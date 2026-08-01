@@ -158,5 +158,9 @@ class HealthResponse(BaseModel):
     vector_store_backend: str
     embedding_model: str
     reranker_model: str
-    gemini_available: bool
     documents_indexed: int
+    # Renamed from gemini_available: /docs is public, and naming a third-party
+    # model in the health payload invites "where do our documents go?" from
+    # confidentiality-conscious firms before there is a good answer ready.
+    # The model name stays in config for debugging.
+    generation_available: bool

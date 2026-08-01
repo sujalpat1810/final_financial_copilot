@@ -109,7 +109,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Financial Research Copilot",
-    description="Hybrid RAG pipeline for annual report analysis (Gemini 2.5 Flash)",
+    # No model vendor in the title or description: /docs is public.
+    description="Hybrid retrieval over annual reports, with page-level citations.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -376,6 +377,6 @@ async def health():
         vector_store_backend=cfg.vector_store_backend,
         embedding_model=cfg.embedding_model,
         reranker_model=cfg.reranker_model,
-        gemini_available=bool(cfg.gemini_api_key),
+        generation_available=bool(cfg.gemini_api_key),
         documents_indexed=chunk_count,
     )
