@@ -18,8 +18,20 @@ class ChunkMetadata(BaseModel):
     doc_name: str
     page_number: int
     section_title: str | None = None
-    fiscal_year: str | None = None   # e.g. "FY2023" — detected during ingestion
     chunk_index: int = 0             # position of chunk within the page
+
+    # ── Provenance ────────────────────────────────────────────────────────────
+    # entity and fiscal_year are supplied by the operator at ingest, never
+    # detected.  Detection was tried and removed: the first four-digit year on a
+    # page is meaningless in a report full of comparative columns, and taking the
+    # most common year across 300 pages is a lottery.
+    entity: str | None = None        # e.g. "Infosys"
+    fiscal_year: str | None = None   # e.g. "FY2024-25"
+
+    # Which set of financial statements this chunk's page belongs to.  None means
+    # undetermined — see app/basis.py.  Undetermined qualifies the answer
+    # downstream; it is never silently resolved to one basis or the other.
+    basis: str | None = None         # "standalone" | "consolidated" | None
 
 
 class Chunk(BaseModel):
@@ -83,6 +95,11 @@ class DocumentInfo(BaseModel):
     chunks: int
     fiscal_year: str | None
     ingested_at: str   # ISO timestamp
+    entity: str | None = None
+    # Page counts per detected basis — lets the UI show what was found without
+    # re-scanning, and makes a detection failure visible rather than silent.
+    standalone_pages: int = 0
+    consolidated_pages: int = 0
 
 
 class DocumentListResponse(BaseModel):

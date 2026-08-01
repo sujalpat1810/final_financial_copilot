@@ -4,7 +4,7 @@ No PDF needed — we test _chunk_text directly.
 """
 
 import pytest
-from app.ingestion import _chunk_text, _detect_fiscal_year, _detect_section_heading
+from app.ingestion import _chunk_text, _detect_section_heading
 
 
 def test_chunk_short_text_returns_single_chunk():
@@ -38,21 +38,15 @@ def test_chunk_empty_text_returns_empty():
     assert _chunk_text("   \n\n   ") == []
 
 
-def test_detect_fiscal_year_fy_prefix():
-    assert _detect_fiscal_year("For fiscal year 2023, revenue was $10B.") == "FY2023"
-
-
-def test_detect_fiscal_year_year_ended():
-    assert _detect_fiscal_year("Year ended December 31, 2022") == "FY2022"
-
-
-def test_detect_fiscal_year_bare_year():
-    result = _detect_fiscal_year("In 2024 the company expanded operations.")
-    assert result == "FY2024"
-
-
-def test_detect_fiscal_year_none():
-    assert _detect_fiscal_year("No year mentioned here.") is None
+# The four test_detect_fiscal_year_* tests that were here have been removed
+# along with the function they covered.  They encoded the bug rather than
+# guarding against it: test_detect_fiscal_year_bare_year asserted that
+# "In 2024 the company expanded operations." yields FY2024, i.e. that any bare
+# four-digit year on a page becomes the page's fiscal year.  On a real annual
+# report every comparative column supplies a competing year, so that heuristic
+# mislabels most pages.  fiscal_year and entity are now operator-supplied at
+# ingest; basis is derived from section structure and is tested in
+# tests/test_basis_detection.py.
 
 
 def test_detect_section_heading_all_caps():

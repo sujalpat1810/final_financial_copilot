@@ -33,28 +33,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.basis import assign_basis
 from app.config import cfg
 from app.models import Chunk, ChunkMetadata, DocumentInfo
 
 
-# ── Fiscal year detector ──────────────────────────────────────────────────────
-
-_FY_PATTERN = re.compile(
-    r"\b(?:FY|fiscal year|year ended|year ending)\s*"
-    r"(?:20\d{2}|19\d{2})|"
-    r"\b(20\d{2}|19\d{2})\b",
-    re.IGNORECASE,
-)
-
-
-def _detect_fiscal_year(text: str) -> str | None:
-    """Return the first 4-digit year found, or None."""
-    match = _FY_PATTERN.search(text)
-    if match:
-        year = re.search(r"(20\d{2}|19\d{2})", match.group())
-        if year:
-            return f"FY{year.group()}"
-    return None
+# Fiscal year is NOT detected.  A regex that took the first four-digit year on a
+# page returned garbage on real annual reports — any comparative column supplies
+# a competing year — and propagating the most common year across 300 pages was a
+# lottery.  entity and fiscal_year are now supplied by the operator at ingest.
+# Basis IS detected, from section structure rather than keywords: see app/basis.py.
 
 
 # ── Section heading detector ──────────────────────────────────────────────────
@@ -90,7 +78,7 @@ def _table_to_text(table: list[list[str | None]]) -> str:
 def _extract_pages(pdf_path: str) -> list[dict[str, Any]]:
     """
     Returns a list of page dicts:
-      { page_number, text, section_heading, fiscal_year }
+      { page_number, text, section_heading }
     """
     pages: list[dict] = []
 
@@ -119,7 +107,6 @@ def _extract_pages(pdf_path: str) -> list[dict[str, Any]]:
                     "page_number": page_num,
                     "text": text,
                     "section_heading": _detect_section_heading(text),
-                    "fiscal_year": _detect_fiscal_year(text),
                 })
 
     except Exception as e:
@@ -152,7 +139,6 @@ def _extract_all_pypdf(pdf_path: str) -> list[dict]:
                 "page_number": i,
                 "text": text,
                 "section_heading": _detect_section_heading(text),
-                "fiscal_year": _detect_fiscal_year(text),
             })
         return pages
     except Exception as e:
@@ -244,10 +230,22 @@ def _save_chunk_store(store: dict[str, Any]) -> None:
 
 # ── Main ingestion entry point ────────────────────────────────────────────────
 
-def ingest_pdf(pdf_path: str, doc_name: str | None = None) -> tuple[str, list[Chunk]]:
+def ingest_pdf(
+    pdf_path: str,
+    doc_name: str | None = None,
+    entity: str | None = None,
+    fiscal_year: str | None = None,
+) -> tuple[str, list[Chunk]]:
     """
     Parse a PDF, chunk it, and return (doc_id, [Chunk, ...]).
     Callers are responsible for embedding + indexing the returned chunks.
+
+    entity and fiscal_year are operator-supplied and applied to every chunk.
+    They are not inferred from the document — see the note above
+    _detect_section_heading for why detection was removed.
+
+    basis is detected per page from section structure (app/basis.py) and may be
+    None for pages outside the financial statements, which is the honest value.
     """
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
@@ -259,19 +257,18 @@ def ingest_pdf(pdf_path: str, doc_name: str | None = None) -> tuple[str, list[Ch
     if not pages:
         raise ValueError("No text could be extracted from this PDF.")
 
-    # Propagate the most common fiscal year across all pages in the document
-    all_years = [p["fiscal_year"] for p in pages if p["fiscal_year"]]
-    doc_fiscal_year = max(set(all_years), key=all_years.count) if all_years else None
+    # Basis needs the whole document in page order — it is a section property,
+    # not a page property, so it cannot be decided one page at a time.
+    page_basis = assign_basis([p["text"] for p in pages])
 
     chunks: list[Chunk] = []
     chunk_idx = 0
 
-    for page in pages:
+    for page, basis in zip(pages, page_basis):
         text = page["text"]
         if not text.strip():
             continue
 
-        page_fiscal_year = page["fiscal_year"] or doc_fiscal_year
         page_heading = page["section_heading"]
 
         for i, chunk_text in enumerate(_chunk_text(text)):
@@ -285,7 +282,9 @@ def ingest_pdf(pdf_path: str, doc_name: str | None = None) -> tuple[str, list[Ch
                     doc_name=doc_name,
                     page_number=page["page_number"],
                     section_title=page_heading,
-                    fiscal_year=page_fiscal_year,
+                    entity=entity,
+                    fiscal_year=fiscal_year,
+                    basis=basis,
                     chunk_index=chunk_idx,
                 ),
             ))
@@ -298,7 +297,10 @@ def ingest_pdf(pdf_path: str, doc_name: str | None = None) -> tuple[str, list[Ch
         "doc_name": doc_name,
         "pages": len(pages),
         "chunks": len(chunks),
-        "fiscal_year": doc_fiscal_year,
+        "entity": entity,
+        "fiscal_year": fiscal_year,
+        "standalone_pages": sum(1 for b in page_basis if b == "standalone"),
+        "consolidated_pages": sum(1 for b in page_basis if b == "consolidated"),
         "ingested_at": datetime.now(timezone.utc).isoformat(),
     }
     for c in chunks:

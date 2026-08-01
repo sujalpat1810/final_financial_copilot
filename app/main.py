@@ -115,10 +115,25 @@ app.add_middleware(
 async def ingest(
     file: UploadFile = File(..., description="PDF annual report"),
     doc_name: str | None = Form(None, description="Override document name"),
+    entity: str = Form(..., description="Reporting entity, e.g. 'Infosys'"),
+    fiscal_year: str = Form(..., description="Fiscal year of the report, e.g. 'FY2024-25'"),
 ):
-    """Parse a PDF, chunk it, and add it to both vector and BM25 indexes."""
+    """
+    Parse a PDF, chunk it, and add it to both vector and BM25 indexes.
+
+    entity and fiscal_year are required.  They are not inferred from the
+    document: an annual report is full of comparative columns, so any heuristic
+    that reads a year off the page is guessing.  Getting these wrong attributes
+    a figure to the wrong company or year, which is the failure this product
+    exists to prevent — so they are asked for rather than assumed.
+    """
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    entity = entity.strip()
+    fiscal_year = fiscal_year.strip()
+    if not entity or not fiscal_year:
+        raise HTTPException(status_code=400, detail="entity and fiscal_year must not be blank.")
 
     # Save upload to a temp file
     tmp_path = Path("data") / "tmp_upload.pdf"
@@ -127,7 +142,12 @@ async def ingest(
     tmp_path.write_bytes(content)
 
     try:
-        doc_id, chunks = ingest_pdf(str(tmp_path), doc_name or Path(file.filename).stem)
+        doc_id, chunks = ingest_pdf(
+            str(tmp_path),
+            doc_name or Path(file.filename).stem,
+            entity=entity,
+            fiscal_year=fiscal_year,
+        )
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
     finally:
