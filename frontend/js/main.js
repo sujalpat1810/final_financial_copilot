@@ -6,8 +6,10 @@
  */
 
 import * as api from './api.js';
+import { onCitationActivate } from './citations.js';
 import { basisLabel, escapeHtml, formatCount } from './format.js';
-import { toast } from './ui.js';
+import { renderError, renderPending, renderResponse } from './render.js';
+import { hideWelcome, scrollToLatest, toast } from './ui.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -179,16 +181,53 @@ function initComposer() {
   el('askBtn').addEventListener('click', submitQuery);
 }
 
-/**
- * Placeholder until the finding/abstention renderers land. Deliberately loud
- * rather than silent, so a half-wired build is obvious rather than looking like
- * a query that returned nothing.
- */
 async function submitQuery() {
-  const question = el('queryInput').value.trim();
+  const input = el('queryInput');
+  const question = input.value.trim();
   if (!question || state.busy) return;
-  toast('Answer rendering is not wired up yet.', 'error');
-  console.warn('submitQuery: awaiting ui.renderFinding', { question });
+
+  state.busy = true;
+  updateAskEnabled();
+  hideWelcome();
+
+  const stream = el('streamInner');
+  const pending = renderPending(stream, question);
+  scrollToLatest();
+
+  // Clear immediately: the question is already on screen as a heading, so
+  // leaving it in the box invites an accidental duplicate submission.
+  input.value = '';
+  resizeInput();
+
+  try {
+    const response = await api.query({
+      question,
+      docName: state.docFilter,
+    });
+    pending.remove();
+    renderResponse(stream, response, { openableDocIds: openableDocIds() });
+  } catch (e) {
+    pending.remove();
+    renderError(stream, question, e.message);
+  } finally {
+    state.busy = false;
+    updateAskEnabled();
+    scrollToLatest();
+    input.focus();
+  }
+}
+
+/**
+ * Documents whose PDF is on disk and can therefore be opened from a citation.
+ *
+ * Derived from /documents rather than assumed: anything ingested before PDFs
+ * were persisted has no file, and offering a link that 404s is worse than
+ * rendering the citation inert.
+ */
+function openableDocIds() {
+  return new Set(
+    [...state.documents.values()].filter((d) => d.has_file).map((d) => d.doc_id),
+  );
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -305,10 +344,21 @@ function initAbout() {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
+function initCitations() {
+  // One delegated listener on the stream, so cards rendered later need no
+  // wiring. The viewer replaces this handler in the next commit.
+  onCitationActivate(el('stream'), ({ docId, page, trigger }) => {
+    const doc = state.documents.get(docId);
+    toast(`Source viewer lands next: ${doc ? doc.doc_name : docId} p.${page}`);
+    trigger.blur();
+  });
+}
+
 function init() {
   initComposer();
   initUpload();
   initAbout();
+  initCitations();
   refreshHealth();
   refreshDocuments();
 }
