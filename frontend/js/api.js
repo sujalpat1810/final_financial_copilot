@@ -14,11 +14,23 @@
  * reverse proxy on a path prefix — an on-prem install is exactly where that
  * happens. `new URL('./', href)` normalises away any filename first, so both
  * /app/ and /app/index.html resolve the same way.
+ *
+ * Resolved on first use rather than at module scope: touching window during
+ * import makes this module — and every module that imports it — impossible to
+ * load under `node --test`, which is where the viewer's matching logic is
+ * tested.
  */
-const API_ROOT = new URL('../', new URL('./', window.location.href));
+let apiRoot = null;
+
+function root() {
+  if (!apiRoot) {
+    apiRoot = new URL('../', new URL('./', window.location.href));
+  }
+  return apiRoot;
+}
 
 function apiUrl(path) {
-  return new URL(path.replace(/^\//, ''), API_ROOT).toString();
+  return new URL(path.replace(/^\//, ''), root()).toString();
 }
 
 /**

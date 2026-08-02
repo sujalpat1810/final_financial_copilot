@@ -10,12 +10,16 @@ import { onCitationActivate } from './citations.js';
 import { basisLabel, escapeHtml, formatCount } from './format.js';
 import { renderError, renderPending, renderResponse } from './render.js';
 import { hideWelcome, scrollToLatest, toast } from './ui.js';
+import { initViewer, openSource } from './viewer.js';
 
 const el = (id) => document.getElementById(id);
 
 /** Documents currently indexed, keyed by doc_id. Read by the viewer and chips. */
 export const state = {
   documents: new Map(),
+  // Every source ever rendered, so a citation clicked in an older answer can
+  // still find the excerpt the viewer needs to locate on the page.
+  sourcesByChunkId: new Map(),
   docFilter: null,     // doc_name to restrict retrieval to, or null
   busy: false,
 };
@@ -205,6 +209,9 @@ async function submitQuery() {
       docName: state.docFilter,
     });
     pending.remove();
+    for (const source of response.sources) {
+      if (source.chunk_id) state.sourcesByChunkId.set(source.chunk_id, source);
+    }
     renderResponse(stream, response, { openableDocIds: openableDocIds() });
   } catch (e) {
     pending.remove();
@@ -345,12 +352,21 @@ function initAbout() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 function initCitations() {
-  // One delegated listener on the stream, so cards rendered later need no
-  // wiring. The viewer replaces this handler in the next commit.
-  onCitationActivate(el('stream'), ({ docId, page, trigger }) => {
+  initViewer();
+  // One delegated listener on the stream, so cards rendered later need no wiring.
+  onCitationActivate(el('stream'), ({ docId, page, chunkId, trigger }) => {
     const doc = state.documents.get(docId);
-    toast(`Source viewer lands next: ${doc ? doc.doc_name : docId} p.${page}`);
-    trigger.blur();
+    const source = state.sourcesByChunkId.get(chunkId);
+    openSource({
+      docId,
+      page,
+      docName: doc ? doc.doc_name : docId,
+      // The excerpt is what gets located on the page. Without it the viewer
+      // still opens, just without a highlight.
+      excerpt: source ? source.excerpt : null,
+      isTable: source ? source.is_table : true,
+      trigger,
+    });
   });
 }
 
