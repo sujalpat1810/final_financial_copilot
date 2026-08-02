@@ -33,11 +33,60 @@ class ChunkMetadata(BaseModel):
     # downstream; it is never silently resolved to one basis or the other.
     basis: str | None = None         # "standalone" | "consolidated" | None
 
+    def provenance_line(self) -> str:
+        """
+        One line of natural language describing where this chunk came from,
+        prepended to the indexed text so retrieval can match on it.
+
+        When basis is undetermined the clause is omitted rather than filled with
+        a label like "financial highlights".  A page outside the statement blocks
+        might be the board's report, the ESG section or a ten-year summary, and
+        inventing a description for it would both misdescribe the page and let it
+        compete with the real statements for a query that names a basis.
+        """
+        parts = [p for p in (self.entity, self.fiscal_year) if p]
+        if not parts:
+            return ""
+        head = " ".join(parts) + " annual report"
+        if self.basis:
+            head += f", {self.basis} financial statements"
+        return f"{head}, page {self.page_number}."
+
 
 class Chunk(BaseModel):
     chunk_id: str
     text: str
     metadata: ChunkMetadata
+
+    @property
+    def indexed_text(self) -> str:
+        """
+        What retrieval sees: a provenance line, then the chunk text.
+
+        Measured against the real corpus, the statement pages were unreachable
+        without this.  For "What was Infosys consolidated revenue in FY2024-25?",
+        the consolidated P&L page scored:
+
+            vector search   not in the top 200 at all
+            BM25            rank 118
+            reranker        -1.22, against +3.76 for a narrative page
+
+        The reason is that the chunk is a reserialised table of numbers. Nothing
+        in its text says "Infosys", "FY2024-25" or "consolidated" — those facts
+        live in metadata, which neither the embedder nor the cross-encoder ever
+        reads. So the query's most discriminating words could not match the one
+        chunk that actually answered it. With the line prepended the same chunk
+        scores 6.64, and a "consolidated" query now outranks the standalone page
+        rather than being blind to the distinction.
+
+        This is kept SEPARATE from `text` deliberately. `text` is what the answer
+        quotes, what the excerpt shows, and what the source viewer searches for
+        in the PDF's text layer — and the provenance line does not appear on the
+        page, so folding it into `text` would have the viewer hunting for a
+        string that cannot be found.
+        """
+        line = self.metadata.provenance_line()
+        return f"{line}\n{self.text}" if line else self.text
 
 
 class RetrievedChunk(BaseModel):

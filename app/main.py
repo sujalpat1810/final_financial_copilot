@@ -184,7 +184,9 @@ async def ingest(
 
     # Embed all chunks
     embed: EmbeddingModel = _state["embed"]
-    texts = [c.text for c in chunks]
+    # indexed_text carries the provenance line; see Chunk.indexed_text for the
+    # measurements that made it necessary.
+    texts = [c.indexed_text for c in chunks]
     embeddings = await run_in_threadpool(embed.embed_documents, texts)
 
     # Add to vector store (writes the FAISS index + sidecar to disk)

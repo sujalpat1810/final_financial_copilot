@@ -116,3 +116,92 @@ def test_undetected_basis_stays_none_rather_than_defaulting(fake_pdf, monkeypatc
     _, chunks = ingestion.ingest_pdf(fake_pdf, doc_name="d", entity="E", fiscal_year="FY1")
 
     assert all(c.metadata.basis is None for c in chunks)
+
+
+# ── Indexed text ──────────────────────────────────────────────────────────────
+# Measured on the real corpus: without a provenance line, the consolidated P&L
+# page for "What was Infosys consolidated revenue in FY2024-25?" was absent from
+# the vector top-200, sat at BM25 rank 118, and scored -1.22 from the reranker
+# against +3.76 for a narrative page. The chunk is a reserialised table; nothing
+# in its text says Infosys, FY2024-25 or consolidated.
+
+def test_indexed_text_carries_provenance_for_retrieval():
+    from app.models import Chunk, ChunkMetadata
+
+    meta = ChunkMetadata(
+        chunk_id="c", doc_id="d", doc_name="Infosys FY2024-25", page_number=276,
+        entity="Infosys", fiscal_year="FY2024-25", basis="consolidated",
+    )
+    chunk = Chunk(chunk_id="c", text="[TABLE]\nRevenue from operations | 162,990", metadata=meta)
+
+    indexed = chunk.indexed_text
+    for term in ("Infosys", "FY2024-25", "consolidated", "276"):
+        assert term in indexed, f"{term!r} must be searchable"
+    assert chunk.text in indexed
+
+
+def test_indexed_text_leaves_the_raw_text_untouched():
+    """
+    text is what the answer quotes, what the excerpt shows, and what the source
+    viewer searches for in the PDF text layer. The provenance line is not printed
+    on the page, so folding it into text would send the viewer hunting for a
+    string that cannot be found there.
+    """
+    from app.models import Chunk, ChunkMetadata
+
+    meta = ChunkMetadata(chunk_id="c", doc_id="d", doc_name="n", page_number=1,
+                         entity="Infosys", fiscal_year="FY2024-25", basis="standalone")
+    chunk = Chunk(chunk_id="c", text="Revenue grew.", metadata=meta)
+
+    assert chunk.text == "Revenue grew."
+    assert chunk.indexed_text != chunk.text
+
+
+def test_undetermined_basis_claims_nothing():
+    """
+    A page outside the statement blocks could be the board's report, ESG or a
+    ten-year summary. Inventing a label would misdescribe it and let it compete
+    with the real statements for a query that names a basis.
+    """
+    from app.models import Chunk, ChunkMetadata
+
+    meta = ChunkMetadata(chunk_id="c", doc_id="d", doc_name="n", page_number=76,
+                         entity="Infosys", fiscal_year="FY2024-25", basis=None)
+    line = meta.provenance_line()
+
+    assert "financial statements" not in line
+    assert "highlights" not in line
+    assert "Infosys" in line and "page 76" in line
+
+
+def test_documents_without_provenance_are_indexed_unchanged():
+    """Anything ingested before entity/fiscal_year were required must still index."""
+    from app.models import Chunk, ChunkMetadata
+
+    meta = ChunkMetadata(chunk_id="c", doc_id="d", doc_name="n", page_number=1)
+    chunk = Chunk(chunk_id="c", text="legacy chunk", metadata=meta)
+
+    assert meta.provenance_line() == ""
+    assert chunk.indexed_text == "legacy chunk"
+
+
+def test_bm25_indexes_the_provenance_line(tmp_path, monkeypatch):
+    """The line is only useful if the index actually tokenises it."""
+    from app.models import Chunk, ChunkMetadata
+    from app.retrieval import BM25Index
+
+    def make(page, basis, text):
+        meta = ChunkMetadata(chunk_id=f"c{page}", doc_id="d", doc_name="Infosys FY2024-25",
+                             page_number=page, entity="Infosys", fiscal_year="FY2024-25",
+                             basis=basis)
+        return Chunk(chunk_id=f"c{page}", text=text, metadata=meta)
+
+    index = BM25Index()
+    index.build([
+        make(276, "consolidated", "[TABLE]\nRevenue from operations | 162,990"),
+        make(196, "standalone", "[TABLE]\nRevenue from operations | 1,36,592"),
+    ])
+
+    hits = index.search("consolidated financial statements", top_k=5)
+    assert hits, "the provenance line was not indexed"
+    assert hits[0].chunk.metadata.basis == "consolidated"

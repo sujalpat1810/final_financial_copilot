@@ -92,7 +92,11 @@ class BM25Index:
         with self._lock:
             self._chunk_ids = [c.chunk_id for c in chunks]
             self._chunks = chunks
-            corpus = [_tokenise(c.text) for c in chunks]
+            # indexed_text, not text: it prepends entity, fiscal year and basis,
+            # which is what lets a query naming a basis reach the right set of
+            # statements. Without it the consolidated P&L for a revenue query
+            # sat at BM25 rank 118. See Chunk.indexed_text.
+            corpus = [_tokenise(c.indexed_text) for c in chunks]
             self._bm25 = BM25Plus(corpus)
 
     def add_chunks(self, chunks: list[Chunk]) -> None:
