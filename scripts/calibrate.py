@@ -19,9 +19,15 @@ So they are measured, not guessed.
 
 What it reports
 ───────────────
-  1. Retrieval quality — for questions with a known correct page, does that page
-     appear in the top-N at all, and at what rank? A perfect threshold cannot
-     rescue retrieval that never surfaced the right chunk.
+  1. Retrieval quality — for questions with a known correct FIGURE, was that
+     figure retrieved, from the right set of statements, and at what rank? A
+     perfect threshold cannot rescue retrieval that never surfaced the answer.
+
+     Checked by figure rather than by page. An earlier version pinned one
+     expected page and reported 0/5 — which was the metric being wrong, not
+     retrieval: Infosys states its consolidated revenue on five different
+     pages, and the same figure is printed with different digit grouping in
+     different sections of one report.
   2. Score distribution — top score per question, split into answerable and
      unanswerable groups.
   3. A recommended abstain floor, placed in the gap between the two groups, and
@@ -36,26 +42,45 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
 import sys
 from pathlib import Path
 
+
+def _digits(text: str) -> str:
+    """Strip separators so 162,990 and 1,62,990 compare equal."""
+    return re.sub(r"[,\s]", "", text)
+
 # ── Probe set ─────────────────────────────────────────────────────────────────
-# expect: (doc_name substring, page) that a correct answer must be able to cite.
-# None means the corpus cannot answer it and the system must abstain.
+# expect: {doc, basis, figure} that a correct answer must be able to cite,
+#         "any" when the question is answerable but has no single right figure,
+#         or None when the corpus cannot answer it and the system must abstain.
 
 PROBES = [
-    # Answerable, with a known page. Pages measured from the PDFs.
+    # Answerable, with a known correct FIGURE.
+    #
+    # Deliberately not a pinned page. An earlier version of this file asserted a
+    # single expected page and reported 0/5, which was the metric being wrong
+    # rather than retrieval failing: Infosys states its consolidated revenue on
+    # pages 276, 321, 322, 345 and 346, and retrieving any of them answers the
+    # question. Worse, the same figure is printed with DIFFERENT digit grouping
+    # in different sections of one report — 162,990 on p276 and 1,62,990 on p346
+    # — so a literal string match missed real hits too. Separators are stripped
+    # before comparing.
+    #
+    # basis is checked as well as the figure: retrieving the right number from
+    # the wrong set of statements is not a correct answer, it is a coincidence.
     {"q": "What was Infosys consolidated revenue in FY2024-25?",
-     "expect": ("Infosys FY2024-25", 276)},
+     "expect": {"doc": "Infosys FY2024-25", "basis": "consolidated", "figure": "162990"}},
     {"q": "What was Infosys standalone revenue in FY2024-25?",
-     "expect": ("Infosys FY2024-25", 196)},
+     "expect": {"doc": "Infosys FY2024-25", "basis": "standalone", "figure": "136592"}},
     {"q": "What was TCS consolidated revenue in FY2024-25?",
-     "expect": ("TCS FY2024-25", 181)},
+     "expect": {"doc": "TCS FY2024-25", "basis": "consolidated", "figure": "255324"}},
     {"q": "What was TCS standalone revenue in FY2024-25?",
-     "expect": ("TCS FY2024-25", 253)},
+     "expect": {"doc": "TCS FY2024-25", "basis": "standalone", "figure": "214853"}},
     {"q": "What was Infosys consolidated revenue in FY2025-26?",
-     "expect": ("Infosys FY2025-26", 287)},
+     "expect": {"doc": "Infosys FY2025-26", "basis": "consolidated", "figure": "178650"}},
 
     # Answerable, page not pinned — prose and table retrieval of other kinds.
     {"q": "Who audited Infosys and was the opinion unqualified?", "expect": "any"},
@@ -121,21 +146,30 @@ def main(argv: list[str] | None = None) -> int:
         scores = [r.rerank_score for r in results if r.rerank_score is not None]
         top = max(scores) if scores else None
 
-        # Where did the expected page land?
+        # Did any retrieved chunk carry the right figure, from the right basis?
         rank = None
-        if isinstance(probe["expect"], tuple):
-            want_doc, want_page = probe["expect"]
+        rank_any_basis = None
+        want = probe["expect"] if isinstance(probe["expect"], dict) else None
+        if want:
             for i, r in enumerate(results, start=1):
                 m = r.chunk.metadata
-                if want_doc in m.doc_name and m.page_number == want_page:
+                if want["doc"] not in m.doc_name:
+                    continue
+                if want["figure"] not in _digits(r.chunk.text):
+                    continue
+                if rank_any_basis is None:
+                    rank_any_basis = i
+                if m.basis == want["basis"] and rank is None:
                     rank = i
-                    break
+            # Retrieving the right number from the wrong statements is not a
+            # correct answer, so that case is reported separately below.
 
         kind = ("absent" if probe["expect"] is None
-                else "pinned" if isinstance(probe["expect"], tuple) else "open")
+                else "pinned" if isinstance(probe["expect"], dict) else "open")
         measurements.append({
             "question": probe["q"], "kind": kind, "top": top,
             "scores": scores, "expected_rank": rank,
+            "rank_any_basis": rank_any_basis,
             "top_hits": [
                 {"doc": r.chunk.metadata.doc_name, "page": r.chunk.metadata.page_number,
                  "basis": r.chunk.metadata.basis, "score": r.rerank_score,
@@ -146,7 +180,12 @@ def main(argv: list[str] | None = None) -> int:
 
         verdict = ""
         if kind == "pinned":
-            verdict = f"expected page at rank {rank}" if rank else "EXPECTED PAGE NOT RETRIEVED"
+            if rank:
+                verdict = f"correct figure + basis at rank {rank}"
+            elif rank_any_basis:
+                verdict = f"FIGURE FOUND BUT WRONG BASIS (rank {rank_any_basis})"
+            else:
+                verdict = "CORRECT FIGURE NOT RETRIEVED"
         print(f"\n[{kind:6}] {probe['q']}")
         print(f"          top={_fmt(top)}   {verdict}")
         for hit in measurements[-1]["top_hits"]:
@@ -161,10 +200,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{'=' * 78}\nRETRIEVAL QUALITY")
     pinned = [m for m in measurements if m["kind"] == "pinned"]
     hits = [m for m in pinned if m["expected_rank"]]
-    print(f"  expected page in top-{args.top_n}: {len(hits)}/{len(pinned)}")
+    print(f"  correct figure AND basis in top-{args.top_n}: {len(hits)}/{len(pinned)}")
     for m in pinned:
-        mark = f"rank {m['expected_rank']}" if m["expected_rank"] else "MISS"
-        print(f"    {mark:<8} {m['question']}")
+        if m["expected_rank"]:
+            mark = f"rank {m['expected_rank']}"
+        elif m["rank_any_basis"]:
+            mark = f"BASIS?{m['rank_any_basis']}"
+        else:
+            mark = "MISS"
+        print(f"    {mark:<9} {m['question']}")
+    wrong_basis = [m for m in pinned if not m["expected_rank"] and m["rank_any_basis"]]
+    if wrong_basis:
+        print(f"\n  {len(wrong_basis)} retrieved the right number from the WRONG set of")
+        print("  statements. That is not a near miss — standalone and consolidated")
+        print("  figures are not interchangeable.")
     if len(hits) < len(pinned):
         print("\n  A miss cannot be fixed by tuning thresholds — the right chunk was\n"
               "  never retrieved. Look at chunking or the candidate pool sizes\n"

@@ -189,7 +189,12 @@ class Reranker:
     def rerank(self, query: str, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
         if not candidates:
             return []
-        pairs = [(query, c.chunk.text) for c in candidates]
+        # indexed_text, matching what the embedder and BM25 were given. Scoring
+        # the bare text here silently undid the provenance line: the cross-encoder
+        # is the component that decides the final order, so a chunk whose entity,
+        # year and basis it cannot see loses to a narrative page that merely talks
+        # about the topic in prose.
+        pairs = [(query, c.chunk.indexed_text) for c in candidates]
         scores = self._model.predict(pairs).tolist()
         for candidate, score in zip(candidates, scores):
             candidate.rerank_score = float(score)

@@ -225,33 +225,63 @@ API docs are available at `http://localhost:8000/docs`.
 ## API Reference
 
 ### `POST /ingest`
-Upload a PDF for indexing.
+Upload a PDF for indexing. `entity` and `fiscal_year` are **required** — they are
+never inferred from the document (see *Ingest the corpus* above).
 
 ```bash
 curl -X POST http://localhost:8000/ingest \
-  -F "file=@path/to/annual_report.pdf" \
-  -F "doc_name=Apple 10-K FY2023"
+  -F "file=@pdf_data/infosys-ar-25.pdf" \
+  -F "doc_name=Infosys FY2024-25" \
+  -F "entity=Infosys" \
+  -F "fiscal_year=FY2024-25"
 ```
 
-### `POST /query`
-Ask a question with optional filters.
+Returns `409` if a document of that name is already indexed: identical content is
+`AlreadyIndexed`, changed content is `ContentConflict`. Re-ingesting is refused
+rather than merged, because the vector store cannot delete the old chunks and a
+silent second copy could not be undone.
 
+### `POST /query`
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{
-    "question": "What was total revenue in FY2023?",
-    "fiscal_year": "FY2023",
-    "doc_name": "Apple 10-K FY2023",
-    "top_n": 5
-  }'
+  -d '{"question": "What was Infosys consolidated revenue in FY2024-25?"}'
 ```
 
+The response is additive over the original shape. Beyond `answer` and `sources`:
+
+| field | meaning |
+|---|---|
+| `confidence` | `high` / `moderate` / `low` / `insufficient` |
+| `confidence_reason` | the arithmetic behind the label, e.g. `top match 6.4, 3 supporting chunks` |
+| `abstained` | when true, `answer` is empty and **no generation call was made** |
+| `abstention_reason` | what to tell the user |
+| `documents_searched`, `chunks_searched` | scope, for the insufficient-evidence card |
+
+Each entry in `sources` carries `doc_id`, `chunk_id`, `entity`, `fiscal_year`,
+`basis`, `rerank_score`, `relevance` (0–100 display transform) and `is_table`.
+`basis` is `null` when it could not be determined — the UI must show that as
+undetermined rather than resolving it.
+
+`answer_source` is `generated` or `extractive`. Deliberately vendor-neutral:
+what matters to the reader is whether the answer was synthesised or quoted.
+
 ### `GET /documents`
-List all ingested documents.
+Lists indexed documents with entity, fiscal year, page and chunk counts,
+per-basis page counts, and `has_file` — whether the original PDF is on disk and
+so whether citations can open it.
+
+### `GET /documents/{doc_id}/file`
+Serves the original PDF inline, so a citation can open the page it came from.
+`404` distinguishes an unknown `doc_id` from an indexed document whose PDF is
+missing, because the fix differs.
 
 ### `GET /health`
-Check service status, active backend, and whether Gemini is available.
+Service status, active backend, and whether generation is configured. Reports
+`generation_available` rather than naming a model vendor — `/docs` is public.
+
+### `GET /app`
+The frontend. Static files, no build step.
 
 ---
 
