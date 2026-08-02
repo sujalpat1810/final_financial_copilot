@@ -5,10 +5,13 @@ Run with:
     uvicorn app.main:app --reload
 
 Endpoints:
-  POST /ingest          — upload a PDF for indexing
-  POST /query           — ask a question with optional metadata filters
-  GET  /documents       — list all ingested documents
-  GET  /health          — check service status
+  POST /ingest                    — upload a PDF for indexing
+  POST /query                     — ask a question with optional metadata filters
+  GET  /documents                 — list all ingested documents
+  GET  /documents/{doc_id}/file   — serve the original PDF, so a citation can
+                                    open the page it came from
+  GET  /health                    — check service status
+  GET  /app                       — the frontend (static files, no build step)
 
 Startup sequence:
   1. Instantiate the embedding model (downloads ~80 MB on first run).
@@ -26,6 +29,7 @@ Latency logging:
 from __future__ import annotations
 
 import io
+import re
 import time
 import logging
 
@@ -39,12 +43,22 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import cfg
 from app.confidence import assess, relevance
 from app.generation import generate_answer
-from app.ingestion import get_all_chunks, ingest_pdf, list_documents
+from app.ingestion import (
+    AlreadyIndexed,
+    ContentConflict,
+    get_all_chunks,
+    get_document,
+    ingest_pdf,
+    list_documents,
+)
 from app.models import (
     DocumentListResponse,
     HealthResponse,
@@ -97,7 +111,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Financial Research Copilot",
-    description="Hybrid RAG pipeline for annual report analysis (Gemini 2.5 Flash)",
+    # No model vendor in the title or description: /docs is public.
+    description="Hybrid retrieval over annual reports, with page-level citations.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -143,15 +158,25 @@ async def ingest(
     tmp_path.write_bytes(content)
 
     try:
-        doc_id, chunks = ingest_pdf(
+        # run_in_threadpool: ingest_pdf parses and chunks synchronously, and a
+        # 300-page 30 MB integrated annual report takes minutes. Called directly it
+        # would block the event loop for the whole time, so /health and /documents
+        # would hang too and the UI would look dead rather than busy.
+        doc_id, chunks = await run_in_threadpool(
+            ingest_pdf,
             str(tmp_path),
             doc_name or Path(file.filename).stem,
-            entity=entity,
-            fiscal_year=fiscal_year,
+            entity,
+            fiscal_year,
         )
+    except (AlreadyIndexed, ContentConflict) as e:
+        # 409, not 422: the request is well-formed, it conflicts with existing state.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
     finally:
+        # ingest_pdf has already copied the PDF into the store, so discarding the
+        # temp upload no longer loses the only copy.
         tmp_path.unlink(missing_ok=True)
 
     if not chunks:
@@ -160,13 +185,15 @@ async def ingest(
     # Embed all chunks
     embed: EmbeddingModel = _state["embed"]
     texts = [c.text for c in chunks]
-    embeddings = embed.embed_documents(texts)
+    embeddings = await run_in_threadpool(embed.embed_documents, texts)
 
-    # Add to vector store
-    _state["vs"].add_chunks(chunks, embeddings)
+    # Add to vector store (writes the FAISS index + sidecar to disk)
+    await run_in_threadpool(_state["vs"].add_chunks, chunks, embeddings)
 
-    # Add to BM25 index (rebuild in-memory)
-    _state["bm25"].add_chunks(chunks)
+    # Add to BM25 index. BM25Plus is immutable, so add_chunks re-tokenises and
+    # rebuilds the whole corpus — on a multi-document index that is seconds of
+    # CPU, not milliseconds, so it does not belong on the event loop either.
+    await run_in_threadpool(_state["bm25"].add_chunks, chunks)
 
     log.info("Ingested '%s': %d chunks across %d pages", doc_name, len(chunks),
              len({c.metadata.page_number for c in chunks}))
@@ -296,10 +323,55 @@ async def list_docs():
     return DocumentListResponse(documents=docs, total=len(docs))
 
 
+# ── GET /documents/{doc_id}/file ──────────────────────────────────────────────
+
+# doc_id is sha256(doc_name)[:16]. Validated rather than trusted: the lookup is a
+# dict access so traversal is not reachable, but rejecting junk early keeps a
+# malformed id from being reported as "document not found".
+_DOC_ID = re.compile(r"^[0-9a-f]{16}$")
+
+
+@app.get("/documents/{doc_id}/file")
+async def get_document_file(doc_id: str):
+    """
+    Serve the original PDF so a citation can open its source page.
+
+    Inline rather than attachment: the frontend renders this in a side panel with
+    PDF.js, and Content-Disposition: attachment would make the browser download it.
+    """
+    if not _DOC_ID.match(doc_id):
+        raise HTTPException(status_code=400, detail="Malformed doc_id.")
+
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Unknown doc_id.")
+
+    path = doc.get("file_path")
+    if not path or not Path(path).exists():
+        # Distinct from an unknown doc_id: the document is indexed but its PDF is
+        # missing — either ingested before PDFs were persisted, or deleted since.
+        raise HTTPException(
+            status_code=404,
+            detail=f"No stored PDF for '{doc['doc_name']}'. Re-ingest it to enable "
+                   f"the source viewer.",
+        )
+
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{doc_id}.pdf"',
+            # The stored file is immutable for a given doc_id: a changed document
+            # is refused as a ContentConflict rather than overwriting this path.
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 # ── GET /health ───────────────────────────────────────────────────────────────
 
 @app.get("/health", response_model=HealthResponse)
-async def health():
+async def health_check():
     vs = _state.get("vs")
     chunk_count = vs.get_chunk_count() if vs else 0
     return HealthResponse(
@@ -307,6 +379,21 @@ async def health():
         vector_store_backend=cfg.vector_store_backend,
         embedding_model=cfg.embedding_model,
         reranker_model=cfg.reranker_model,
-        gemini_available=bool(cfg.gemini_api_key),
+        generation_available=bool(cfg.gemini_api_key),
         documents_indexed=chunk_count,
     )
+
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+# Mounted LAST and under /app, so it can never shadow an API route: StaticFiles
+# at "/" would swallow /query and /documents.
+#
+# This is why the frontend is served rather than opened from disk. ES modules and
+# the PDF.js worker are both blocked over file://, so the module split and the
+# source viewer are only possible same-origin. There is still no build step and
+# no npm — these are plain static files.
+_FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+if _FRONTEND.is_dir():
+    app.mount("/app", StaticFiles(directory=str(_FRONTEND), html=True), name="frontend")
+else:
+    log.warning("frontend/ not found at %s; UI will not be served.", _FRONTEND)

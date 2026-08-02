@@ -31,6 +31,13 @@ class Config:
     chunk_store_path: str = field(
         default_factory=lambda: os.getenv("CHUNK_STORE_PATH", "data/chunk_store.json")
     )
+    # Where ingested PDFs are kept so citations can open their source page.
+    # Deliberately NOT pdf_data/ — that is the operator's source corpus and stays
+    # untouched.  Served copies are duplicated (~30 MB per report) so a moved or
+    # deleted source file can never break the viewer mid-demo.
+    pdf_store_dir: str = field(
+        default_factory=lambda: os.getenv("PDF_STORE_DIR", "data/pdf_store")
+    )
 
     # ── Embedding model (sentence-transformers, local, no API key needed) ─────
     embedding_model: str = field(

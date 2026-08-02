@@ -1,0 +1,88 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+
+   Every colour below was contrast-checked against the background it actually
+   sits on, not against white. Measured ratios are inline. Re-check with
+   scripts/check_contrast.py after changing any of them.
+
+   For reference, the dark theme this replaced used --text-3 #4a5568 on --bg
+   #070b14 — 2.62:1 — for metadata, hints and stat labels.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  /* ── Surfaces ── */
+  --bg:            #f4f6f8;
+  --surface:       #ffffff;
+  --surface-sunk:  #fafbfc;
+  --surface-accent:#f0f4f9;
+
+  /* ── Borders. Borders, not glows — this is a document tool. ──────────────
+     Two weights, split by WCAG 1.4.11: a boundary that IDENTIFIES an
+     interactive control needs 3:1, a decorative separator does not.
+     --line and --line-strong are separators only (card edges, table rules,
+     the relevance track). --line-control is for anything you can click or
+     type into, and it is deliberately darker — 1.64:1 field borders were also
+     simply hard to see when projected. */
+  --line:          #dfe3e8;   /* decorative separator */
+  --line-strong:   #c3cbd4;   /* decorative separator, heavier */
+  --line-control:  #838f9d;   /*  3.29:1 on #fff · 3.18:1 sunk · 3.04:1 on --bg */
+
+  /* ── Ink, measured on every surface it appears on ── */
+  --ink-1:         #14181d;   /* 17.82:1 on #fff · 17.20:1 sunk */
+  --ink-2:         #4a5561;   /*  7.60:1 on #fff ·  7.02:1 on --bg */
+  --ink-3:         #5e6d7c;   /*  5.31:1 on #fff ·  5.13:1 sunk ·  4.90:1 on --bg.
+                                  Was #667585, which passed on white and the
+                                  sunk surface but measured 4.36:1 on --bg —
+                                  where the question label above every finding
+                                  actually sits. */
+
+  /* ── Accent: one restrained navy, not a product blue ── */
+  --accent:        #1c4e80;   /*  8.57:1 on #fff · 7.52:1 on --accent-wash */
+  --accent-sunk:   #163f68;
+  --accent-wash:   #eaf1f8;
+
+  /* ── Confidence states ───────────────────────────────────────────────────
+     Colour is NEVER the only signal — every use pairs it with an icon and a
+     word, so the state survives being projected and reads for a colourblind
+     partner. Each measured against its own wash, which binds tighter than
+     white. --ok started at #1a7f4b (4.48:1) and failed AA. */
+  --ok:            #16703f;   /*  5.47:1 on --ok-wash */
+  --ok-wash:       #e8f5ee;
+  --ok-line:       #bfe3ce;
+  --warn:          #8a5200;   /*  5.77:1 on --warn-wash */
+  --warn-wash:     #fdf2e2;
+  --warn-line:     #f0d9b4;
+  --mute:          #5c6570;   /*  5.27:1 on --mute-wash */
+  --mute-wash:     #f0f2f4;
+  --stop:          #a4262c;   /*  7.26:1 on #fff */
+  --stop-wash:     #fdeded;
+
+  /* Highlight for a located chunk in the source panel. Paper-like, not neon. */
+  --mark:          #fff2b8;
+  --mark-line:     #e8c74a;
+
+  /* ── Type scale ── */
+  --t-micro:  10.5px;
+  --t-meta:   11.5px;
+  --t-ui:       13px;
+  --t-body:     14px;
+  --t-read:     15px;   /* answer prose — the primary reading surface */
+  --t-lg:       17px;
+  --t-fig:      15px;
+
+  /* Self-hosted. A Google Fonts link is an external request on every load,
+     which contradicts an on-prem confidentiality pitch and dies on an
+     air-gapped machine. Fallbacks are real, in case a face fails to load. */
+  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  /* ── Radii. Tight: this audience reads dense documents all day. ── */
+  --r-sm: 3px;
+  --r:    5px;
+  --r-lg: 7px;
+
+  /* ── Layout ── */
+  --sidebar-w:  236px;
+  --panel-w:    430px;
+  --header-h:    46px;
+  --read-w:     760px;   /* measure for answer prose */
+}

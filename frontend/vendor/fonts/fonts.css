@@ -1,0 +1,47 @@
+/* Self-hosted font faces — 148 KB total, latin subsets only.
+ *
+ * These were previously loaded from fonts.googleapis.com. That is a
+ * third-party request on every page load, which contradicts the on-prem
+ * confidentiality story, fails outright on an air-gapped machine, and blocks
+ * first render over a bad meeting-room connection.
+ *
+ * font-display: swap so text is readable immediately in the fallback face
+ * rather than invisible while a font loads. The fallback stacks in
+ * tokens.css are real, so a missing file degrades rather than breaks.
+ *
+ * Refresh with: python -m scripts.fetch_fonts
+ */
+
+@font-face{
+  font-family:'Inter';
+  src:url('inter-400.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:swap;
+}
+@font-face{
+  font-family:'Inter';
+  src:url('inter-500.woff2') format('woff2');
+  font-weight:500;font-style:normal;font-display:swap;
+}
+@font-face{
+  font-family:'Inter';
+  src:url('inter-600.woff2') format('woff2');
+  /* 600 covers the 650 used by the wordmark and welcome heading: the browser
+     synthesises the difference rather than falling back to the system face. */
+  font-weight:600 700;font-style:normal;font-display:swap;
+}
+@font-face{
+  font-family:'Inter';
+  src:url('inter-700.woff2') format('woff2');
+  font-weight:700;font-style:normal;font-display:swap;
+}
+
+@font-face{
+  font-family:'JetBrains Mono';
+  src:url('jetbrains-mono-400.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:swap;
+}
+@font-face{
+  font-family:'JetBrains Mono';
+  src:url('jetbrains-mono-600.woff2') format('woff2');
+  font-weight:500 700;font-style:normal;font-display:swap;
+}
