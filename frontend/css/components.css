@@ -123,6 +123,12 @@
 .prov.inert{cursor:default;opacity:.75}
 .prov.inert:hover{border-color:var(--line-control);background:var(--surface)}
 
+/* One question and its finding. Grouped so a card and its heading stay together
+   when printed, and so the pending placeholder can be swapped out as a unit. */
+.exchange{display:block}
+.exchange:last-child .card{margin-bottom:8px}
+@media print{ .exchange{break-inside:avoid} }
+
 /* ── Question heading ─────────────────────────────────────────────────────
    A quiet heading above the finding, not a right-aligned bubble. This is a
    research instrument; answers are findings with evidence, not chat messages. */

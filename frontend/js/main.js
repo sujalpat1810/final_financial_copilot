@@ -6,14 +6,20 @@
  */
 
 import * as api from './api.js';
+import { onCitationActivate } from './citations.js';
 import { basisLabel, escapeHtml, formatCount } from './format.js';
-import { toast } from './ui.js';
+import { renderError, renderPending, renderResponse } from './render.js';
+import { hideWelcome, scrollToLatest, toast } from './ui.js';
+import { initViewer, openSource } from './viewer.js';
 
 const el = (id) => document.getElementById(id);
 
 /** Documents currently indexed, keyed by doc_id. Read by the viewer and chips. */
 export const state = {
   documents: new Map(),
+  // Every source ever rendered, so a citation clicked in an older answer can
+  // still find the excerpt the viewer needs to locate on the page.
+  sourcesByChunkId: new Map(),
   docFilter: null,     // doc_name to restrict retrieval to, or null
   busy: false,
 };
@@ -179,16 +185,56 @@ function initComposer() {
   el('askBtn').addEventListener('click', submitQuery);
 }
 
-/**
- * Placeholder until the finding/abstention renderers land. Deliberately loud
- * rather than silent, so a half-wired build is obvious rather than looking like
- * a query that returned nothing.
- */
 async function submitQuery() {
-  const question = el('queryInput').value.trim();
+  const input = el('queryInput');
+  const question = input.value.trim();
   if (!question || state.busy) return;
-  toast('Answer rendering is not wired up yet.', 'error');
-  console.warn('submitQuery: awaiting ui.renderFinding', { question });
+
+  state.busy = true;
+  updateAskEnabled();
+  hideWelcome();
+
+  const stream = el('streamInner');
+  const pending = renderPending(stream, question);
+  scrollToLatest();
+
+  // Clear immediately: the question is already on screen as a heading, so
+  // leaving it in the box invites an accidental duplicate submission.
+  input.value = '';
+  resizeInput();
+
+  try {
+    const response = await api.query({
+      question,
+      docName: state.docFilter,
+    });
+    pending.remove();
+    for (const source of response.sources) {
+      if (source.chunk_id) state.sourcesByChunkId.set(source.chunk_id, source);
+    }
+    renderResponse(stream, response, { openableDocIds: openableDocIds() });
+  } catch (e) {
+    pending.remove();
+    renderError(stream, question, e.message);
+  } finally {
+    state.busy = false;
+    updateAskEnabled();
+    scrollToLatest();
+    input.focus();
+  }
+}
+
+/**
+ * Documents whose PDF is on disk and can therefore be opened from a citation.
+ *
+ * Derived from /documents rather than assumed: anything ingested before PDFs
+ * were persisted has no file, and offering a link that 404s is worse than
+ * rendering the citation inert.
+ */
+function openableDocIds() {
+  return new Set(
+    [...state.documents.values()].filter((d) => d.has_file).map((d) => d.doc_id),
+  );
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -305,10 +351,30 @@ function initAbout() {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
+function initCitations() {
+  initViewer();
+  // One delegated listener on the stream, so cards rendered later need no wiring.
+  onCitationActivate(el('stream'), ({ docId, page, chunkId, trigger }) => {
+    const doc = state.documents.get(docId);
+    const source = state.sourcesByChunkId.get(chunkId);
+    openSource({
+      docId,
+      page,
+      docName: doc ? doc.doc_name : docId,
+      // The excerpt is what gets located on the page. Without it the viewer
+      // still opens, just without a highlight.
+      excerpt: source ? source.excerpt : null,
+      isTable: source ? source.is_table : true,
+      trigger,
+    });
+  });
+}
+
 function init() {
   initComposer();
   initUpload();
   initAbout();
+  initCitations();
   refreshHealth();
   refreshDocuments();
 }

@@ -191,3 +191,32 @@ def test_frontend_is_mounted_without_shadowing_the_api():
     for name in CSS_FILES:
         assert client.get(f"/app/css/{name}").status_code == 200
     assert client.get("/app/js/main.js").status_code == 200
+
+
+def test_every_css_class_used_by_the_app_is_defined():
+    """
+    A class name in a template literal that has no rule renders as unstyled
+    markup — no error, no warning, just a card that quietly looks wrong. This is
+    the CSS twin of test_tokens_referenced_by_css_are_all_defined.
+    """
+    css = "\n".join((CSS_DIR / name).read_text(encoding="utf-8") for name in CSS_FILES)
+    defined = set(re.findall(r"\.([a-zA-Z][\w-]*)", css))
+
+    used: set[str] = set()
+    for js in sorted((FRONTEND / "js").glob("*.js")):
+        if js.name.endswith(".test.js"):
+            continue
+        source = js.read_text(encoding="utf-8")
+        # class="..." in template literals, skipping interpolated segments.
+        for match in re.findall(r'class="([^"$`]*)"', source):
+            used |= {c for c in match.split() if c}
+        for match in re.findall(r"classList\.(?:add|remove|toggle)\(([^)]*)\)", source):
+            used |= {c.strip("'\" ") for c in match.split(",") if "'" in c or '"' in c}
+        for match in re.findall(r"className = ['\"]([^'\"]+)", source):
+            used |= set(match.split())
+
+    for match in re.findall(r'class="([^"]*)"', INDEX.read_text(encoding="utf-8")):
+        used |= set(match.split())
+
+    undefined = sorted(c for c in used - defined if c)
+    assert not undefined, f"CSS classes used but never defined: {undefined}"

@@ -207,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
 
         t1 = time.perf_counter()
         print(f"   embedding {_fmt(len(chunks))} chunks...", flush=True)
-        embeddings = embed.embed_documents([c.text for c in chunks])
+        embeddings = embed.embed_documents([c.indexed_text for c in chunks])
         store.add_chunks(chunks, embeddings)
         bm25.add_chunks(chunks)
         print(f"   indexed  ({time.perf_counter() - t1:.0f}s)")
