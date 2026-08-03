@@ -20,10 +20,13 @@ terms (ticker symbols, line-item names like "EBITDA", specific dollar figures).
 Running both and reranking the union gives coverage that neither method alone
 achieves — especially critical for tables and numerical footnotes.
 
-LangChain role:
-  The EmbeddingModel class is built so it can be used as a drop-in
-  langchain_core.embeddings.Embeddings subclass (implements embed_documents /
-  embed_query) — handy if you want to plug it into a LangChain chain later.
+No orchestration framework:
+  The pipeline below is explicit — embed, search two ways, merge, rerank.  That
+  is short enough to read end to end, and the parts worth protecting (provenance
+  in the indexed text, the abstention gate in app/confidence.py) are not things a
+  chain abstraction models.  EmbeddingModel does expose embed_documents and
+  embed_query, so it duck-types into a LangChain chain if one is ever wanted,
+  without the dependency.
 """
 
 from __future__ import annotations
@@ -46,8 +49,10 @@ from app.models import Chunk, RetrievedChunk
 class EmbeddingModel:
     """
     Thin wrapper around sentence-transformers.SentenceTransformer.
-    Implements LangChain's Embeddings interface (embed_documents / embed_query)
-    so it can be composed into LangChain chains without extra glue code.
+
+    embed_documents / embed_query match the shape LangChain's Embeddings
+    interface expects, so this duck-types into a chain without inheriting from
+    it or importing anything.  It is not a subclass and does not claim to be.
     """
 
     def __init__(self, model_name: str = None) -> None:

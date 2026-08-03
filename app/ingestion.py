@@ -15,11 +15,18 @@ Chunking strategy — semantic boundaries, not fixed windows:
   4. A 1-sentence overlap is kept between adjacent chunks to preserve context
      across boundaries.
 
-LlamaIndex role here:
-  We use LlamaIndex's SimpleDocumentStore as the page-level document store —
-  it provides a clean node/document abstraction with built-in metadata support
-  and serialisation, which keeps page-level documents separate from the
-  embedding-level chunk objects used by LangChain.
+The chunk store:
+  A single JSON file (data/chunk_store.json) holding every chunk with its text
+  and provenance, plus a document record carrying a content hash.  It is the
+  backend-independent source of truth: the BM25 index is rebuilt from it at
+  startup, and scripts/reindex.py repopulates a vector store from it after a
+  backend switch.
+
+  Deliberately not a document-store framework.  What has to be stored here is a
+  page number, an entity, a fiscal year and a basis — four fields whose meaning
+  is specific to financial statements — and a hash to make re-ingest idempotent.
+  A generic node abstraction would model none of that and would have to be
+  configured into approximating it.
 """
 
 from __future__ import annotations
