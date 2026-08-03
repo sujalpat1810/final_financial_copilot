@@ -1,7 +1,8 @@
 # Financial Research Copilot
 
 An enterprise-grade **Hybrid RAG** system for analyzing annual reports and financial documents.
-Generation backend: **Gemini 2.5 Flash** (via the official `google-genai` SDK).
+Generation backend: **Gemini 3.6 Flash** (via the official `google-genai` SDK).
+Set with `GEMINI_MODEL`; `gemini-2.5-flash` is retired for new API keys.
 
 ---
 
@@ -55,7 +56,7 @@ Generation backend: **Gemini 2.5 Flash** (via the official `google-genai` SDK).
                         │      Top-N Chunks + Citations    │          │
                         │           │                                  │
                         │           ▼                                  │
-                        │      Gemini 2.5 Flash                       │
+                        │      Gemini 3.6 Flash                       │
                         │      (with page-citation prompt)            │
                         │           │                                  │
                         │           ▼                                  │
@@ -106,7 +107,9 @@ financial_copilot/
 │   ├── ingestion.py      — PDF parse → semantic chunk → persist to JSON store
 │   ├── vector_store.py   — FAISS + ChromaDB behind a shared VectorStore ABC
 │   ├── retrieval.py      — EmbeddingModel, BM25Index, Reranker, HybridRetriever
-│   ├── generation.py     — Gemini 2.5 Flash call + extractive fallback
+│   ├── confidence.py     — score → confidence label; the abstention decision
+│   ├── entities.py       — refuses questions about companies that aren't indexed
+│   ├── generation.py     — Gemini call, transient retry + extractive fallback
 │   └── main.py           — FastAPI routes + startup lifecycle
 ├── pdf_data/             — source corpus: real annual reports (gitignored)
 ├── scripts/
@@ -115,6 +118,7 @@ financial_copilot/
 │   ├── test_basis_detection.py — standalone/consolidated boundaries vs ground truth
 │   ├── test_chunking.py        — unit tests for chunking and heading detection
 │   ├── test_confidence.py      — confidence + abstention decision boundaries
+│   ├── test_entity_gate.py     — unindexed-company refusals, and their false positives
 │   ├── test_ingest_metadata.py — provenance survives ingest onto every chunk
 │   ├── test_query_endpoint.py  — /query contract, incl. the abstention gate
 │   └── test_retrieval.py       — unit tests for BM25 and merge/dedup logic
@@ -266,6 +270,52 @@ undetermined rather than resolving it.
 `answer_source` is `generated` or `extractive`. Deliberately vendor-neutral:
 what matters to the reader is whether the answer was synthesised or quoted.
 
+#### Two ways a query abstains
+
+**The score floor** catches questions the corpus has no material on at all.
+
+**The entity gate** (`app/entities.py`) catches questions about a company that
+was never indexed — which the score floor provably cannot. Measured over
+`data/calibration.json`, four of the six unindexed-company questions scored
+*above* the −6.0 floor:
+
+| question | top score | floor catches it? |
+|---|---|---|
+| melting point of tungsten | −11.20 | yes |
+| lunar mining operations | −8.99 | yes |
+| HDFC Bank net interest margin | −5.60 | no |
+| Reliance Industries headcount | −4.70 | no |
+| State Bank of India CAR | −2.44 | no |
+| Wipro revenue FY2025 | **+1.33** | no |
+
+Raising the floor cannot close this. Legitimate open questions on the same
+corpus run down to −2.24 ("What was the profit for the year?"), so any threshold
+that catches Wipro at +1.33 also throws away half the questions the tool exists
+to answer. The bands overlap because the reranker measures topical similarity,
+and a peer's financial question is topically identical — an Infosys revenue
+table really is a good match for "Wipro's revenue". The cross-encoder is not
+wrong; it was never asked whether the company matched.
+
+So the gate is categorical rather than scalar: if the question names a company
+that is not indexed, no score is high enough to make answering it correct, and
+generation is skipped before a single score is read.
+
+It fires only on names it positively recognises — a curated peer gazetteer plus
+a corporate-suffix rule ("… Limited", "… Bank"). Unrecognised companies fall
+through to the score floor. That asymmetry is deliberate: a false positive
+refuses a question the corpus could have answered and looks like a bug, while a
+false negative just leaves the previous behaviour in place. A gate keyed on
+capitalisation instead would trip over "Ind AS", "March 31, 2025" and "Board of
+Directors" — all frequent, none of them companies.
+
+The indexed entity set is read per request, so ingesting Wipro stops the gate
+firing on Wipro with no code change.
+
+**Known trade-off:** a question naming both an indexed and an unindexed company
+("Compare Infosys and Wipro") abstains entirely rather than answering the half
+it can. Answering with Infosys figures alone invites the reader to attribute
+them to both.
+
 ### `GET /documents`
 Lists indexed documents with entity, fiscal year, page and chunk counts,
 per-basis page counts, and `has_file` — whether the original PDF is on disk and
@@ -327,7 +377,7 @@ The tests cover:
 | Reranker | CrossEncoder (sentence-transformers) | Cross-encoders are far more accurate than bi-encoders for final ranking |
 | Orchestration | LangChain | EmbeddingModel implements LangChain's Embeddings interface for composability |
 | Document store | LlamaIndex | Page-level node abstraction with metadata; used for the chunk store design |
-| Generation | Google Gemini 2.5 Flash | Fast, high-quality, long context; supports citation-aware prompting |
+| Generation | Google Gemini 3.6 Flash | Fast, high-quality, long context; supports citation-aware prompting |
 | API | FastAPI | Async, automatic OpenAPI docs, native Pydantic integration |
 
 ---
@@ -341,7 +391,7 @@ The tests cover:
 | Vector search (top-10, 500 chunks) | < 5 ms |
 | BM25 search (top-10, 500 chunks) | < 2 ms |
 | Cross-encoder rerank (20 candidates) | 200–600 ms |
-| Gemini 2.5 Flash generation | 1–4 s |
+| Gemini 3.6 Flash generation | 2–20 s (thinking model; slower than 2.5 Flash) |
 
 Every `/query` response includes `retrieval_latency_ms` and `generation_latency_ms`
 so you can quote real numbers from your own run.

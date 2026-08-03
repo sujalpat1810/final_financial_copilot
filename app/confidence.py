@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.config import cfg
+from app.entities import describe as describe_entities
 
 # Logits outside this band carry no extra information for display purposes — the
 # model is already saturated — so the 0-100 scale clamps to it.
@@ -78,13 +79,40 @@ def relevance(score: float | None) -> int:
     return round((clamped - _DISPLAY_FLOOR) / span * 100)
 
 
-def assess(scores: list[float | None]) -> Assessment:
+def assess(
+    scores: list[float | None],
+    foreign_entities: list[str] | None = None,
+    indexed_entities: list[str] | None = None,
+) -> Assessment:
     """
     Decide the confidence level from reranker scores, highest first or not.
 
     Takes bare scores rather than RetrievedChunk objects so the decision
     boundaries are testable without constructing a retrieval pipeline.
+
+    `foreign_entities` are companies the question named that are not indexed
+    (see app/entities.py).  When any are present this returns INSUFFICIENT
+    before looking at a single score, because no score can make an answer about
+    the wrong company correct — a peer's financial question retrieves genuinely
+    similar passages from whichever company IS indexed, and scores accordingly.
+    Kept in this function rather than beside it so there is exactly one place
+    that decides whether an answer is allowed to exist.
     """
+    if foreign_entities:
+        named = describe_entities(foreign_entities)
+        scope = (
+            f" Indexed: {describe_entities(sorted(indexed_entities))}."
+            if indexed_entities else ""
+        )
+        return Assessment(
+            level=Confidence.INSUFFICIENT,
+            reason=f"question names {named}, which is not in the index",
+            abstention_reason=(
+                f"No indexed document covers {named}, so any figure returned here "
+                f"would belong to a different company.{scope}"
+            ),
+        )
+
     usable = [float(s) for s in scores if s is not None]
 
     if not usable:
