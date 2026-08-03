@@ -239,7 +239,8 @@ async function submitQuery() {
   // renderPending drives a stage/elapsed ticker, so it hands back a stop() that
   // must run on every exit path — an interval left running after the card is
   // removed keeps firing against detached nodes for the life of the page.
-  const { node: pending, stop: stopPending } = renderPending(stream, question);
+  const { node: pending, stop: stopPending, showEvidence } =
+    renderPending(stream, question);
   scrollToLatest();
 
   // Clear immediately: the question is already on screen as a heading, so
@@ -247,17 +248,85 @@ async function submitQuery() {
   input.value = '';
   resizeInput();
 
-  try {
-    const response = await api.query({
-      question,
-      docName: state.docFilter,
-    });
-    stopPending();
-    pending.remove();
-    for (const source of response.sources) {
+  // Remember sources as soon as they arrive, so a citation clicked while the
+  // prose is still being written can still find its excerpt.
+  const rememberSources = (sources) => {
+    for (const source of sources || []) {
       if (source.chunk_id) state.sourcesByChunkId.set(source.chunk_id, source);
     }
-    renderResponse(stream, response, { openableDocIds: openableDocIds() });
+  };
+
+  try {
+    let meta = null;
+    let final = null;
+    let abstained = null;
+
+    try {
+      await api.queryStream({ question, docName: state.docFilter }, {
+        onMeta: (m) => {
+          meta = m;
+          rememberSources(m.sources);
+          // Retrieval is done ~25 s before the prose. Put the confidence and the
+          // evidence on screen now rather than holding everything back.
+          showEvidence(m, openableDocIds());
+          scrollToLatest();
+        },
+        onAbstained: (a) => { abstained = a; rememberSources(a.sources); },
+        onDone: (d) => { final = d; },
+      });
+    } catch (streamError) {
+      // Streaming is an optimisation, not a requirement: an old build, a proxy
+      // that buffers, or a dropped connection should cost the reader a slower
+      // answer, not an error. Fall back to the blocking endpoint once.
+      console.warn('[query] streaming failed, falling back', streamError);
+      const response = await api.query({ question, docName: state.docFilter });
+      stopPending();
+      pending.remove();
+      rememberSources(response.sources);
+      renderResponse(stream, response, { openableDocIds: openableDocIds() });
+      return;
+    }
+
+    stopPending();
+    pending.remove();
+
+    if (abstained) {
+      renderResponse(stream, {
+        question,
+        answer: '',
+        sources: abstained.sources,
+        retrieval_latency_ms: abstained.retrieval_latency_ms,
+        generation_latency_ms: 0,
+        total_latency_ms: abstained.retrieval_latency_ms,
+        answer_source: 'none',
+        confidence: abstained.confidence,
+        confidence_reason: abstained.confidence_reason,
+        abstained: true,
+        abstention_reason: abstained.abstention_reason,
+        documents_searched: abstained.documents_searched,
+        chunks_searched: abstained.chunks_searched,
+      }, { openableDocIds: openableDocIds() });
+    } else if (meta && final) {
+      // Re-render from the complete text rather than from what was streamed:
+      // "[Page 30]" can straddle two fragments, and citation chips can only be
+      // built once the marker is whole.
+      renderResponse(stream, {
+        question,
+        answer: final.answer,
+        sources: meta.sources,
+        retrieval_latency_ms: meta.retrieval_latency_ms,
+        generation_latency_ms: final.generation_latency_ms,
+        total_latency_ms: final.total_latency_ms,
+        answer_source: final.answer_source,
+        confidence: meta.confidence,
+        confidence_reason: meta.confidence_reason,
+        abstained: false,
+        documents_searched: meta.documents_searched,
+        chunks_searched: meta.chunks_searched,
+      }, { openableDocIds: openableDocIds() });
+    } else {
+      renderError(stream, question, 'The answer ended before it was complete.');
+    }
   } catch (e) {
     stopPending();
     pending.remove();

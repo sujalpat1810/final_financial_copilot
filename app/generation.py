@@ -169,6 +169,89 @@ def _extractive_answer(question: str, chunks: list[RetrievedChunk]) -> str:
     return "\n".join(lines)
 
 
+# ── Providers ─────────────────────────────────────────────────────────────────
+# Two backends, one prompt, one retry policy, one fallback.  Only the four
+# functions below know which vendor is in use; everything downstream — the
+# abstention gate, answer_source, the response schema — stays vendor-neutral.
+#
+# Each _call_* returns the whole answer; each _stream_* yields fragments.  Both
+# raise on failure, so the shared retry and extractive fallback handle every
+# provider identically.
+
+
+class ProviderUnavailable(RuntimeError):
+    """The provider's SDK is not installed. Distinct from a call that failed."""
+
+
+def _gemini_client():
+    try:
+        from google import genai
+    except ImportError:
+        raise ProviderUnavailable(
+            "google-genai is not installed. Run: pip install -r requirements.txt"
+        )
+    return genai.Client(api_key=cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY"))
+
+
+def _groq_client():
+    try:
+        from groq import Groq
+    except ImportError:
+        raise ProviderUnavailable(
+            "groq is not installed. Run: pip install -r requirements.txt"
+        )
+    return Groq(api_key=cfg.groq_api_key or os.environ.get("GROQ_API_KEY"))
+
+
+def _call_gemini(prompt: str) -> str:
+    response = _gemini_client().models.generate_content(
+        model=cfg.gemini_model, contents=prompt,
+    )
+    return response.text or ""
+
+
+def _stream_gemini(prompt: str):
+    for piece in _gemini_client().models.generate_content_stream(
+        model=cfg.gemini_model, contents=prompt,
+    ):
+        text = getattr(piece, "text", None)
+        if text:
+            yield text
+
+
+def _groq_messages(prompt: str) -> list[dict]:
+    # The prompt already carries its own instructions and the labelled sources,
+    # so it goes in whole as a single user turn rather than being split into a
+    # system message — keeping one prompt string means both providers are
+    # answering from byte-identical instructions.
+    return [{"role": "user", "content": prompt}]
+
+
+def _call_groq(prompt: str) -> str:
+    completion = _groq_client().chat.completions.create(
+        model=cfg.groq_model, messages=_groq_messages(prompt),
+    )
+    return completion.choices[0].message.content or ""
+
+
+def _stream_groq(prompt: str):
+    stream = _groq_client().chat.completions.create(
+        model=cfg.groq_model, messages=_groq_messages(prompt), stream=True,
+    )
+    for chunk in stream:
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        text = getattr(delta, "content", None) if delta else None
+        if text:
+            yield text
+
+
+_CALL = {"gemini": _call_gemini, "groq": _call_groq}
+_STREAM = {"gemini": _stream_gemini, "groq": _stream_groq}
+
+
 # ── Transient-failure retry ───────────────────────────────────────────────────
 # Observed on the demo corpus: a 503 "model is currently experiencing high
 # demand" downgraded a perfectly answerable question to an extractive answer.
@@ -196,14 +279,42 @@ _TRANSIENT_MARKERS = (
 )
 
 
+# A 429 is usually a per-minute burst and worth retrying. A 429 that names a
+# PER-DAY quota is not: the window is tomorrow, no backoff reaches it, and each
+# retry spends another request from an allowance that is already gone. Observed
+# on a free-tier key capped at 20 requests per day — three attempts turned one
+# exhausted answer into three.
+_EXHAUSTED_MARKERS = (
+    "perday",                    # quotaId: GenerateRequestsPerDayPerProjectPerModel
+    "requests per day",
+    "free_tier_requests",
+    "quota exceeded for metric",
+)
+
+
+def _is_daily_quota(error: Exception) -> bool:
+    """A 429 whose window is a day rather than a minute."""
+    text = str(error).lower().replace(" ", "")
+    return "429" in text and any(
+        m.replace(" ", "") in text for m in _EXHAUSTED_MARKERS
+    )
+
+
 def _is_transient(error: Exception) -> bool:
     """
     Whether retrying could plausibly succeed.
 
     A 404 (retired model) or 401/403 (bad key) is a configuration fault: it will
     fail identically three times and the only effect of retrying is to make the
-    request slower before it degrades.
+    request slower before it degrades.  A daily quota is the same in practice —
+    and worse, retrying spends more of a budget that has already run out.
     """
+    if _is_daily_quota(error):
+        log.error(
+            "Generation quota for the day is exhausted — not retrying. Every "
+            "answer will be extractive until it resets. Check the API plan."
+        )
+        return False
     text = str(error).lower()
     return any(marker in text for marker in _TRANSIENT_MARKERS)
 
@@ -225,17 +336,100 @@ def generation_available() -> bool:
     dependency on the model being up.  A retired model id therefore still reads
     as available here; the generate call logs that one.
     """
-    if not (cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")):
+    provider = cfg.generation_provider
+    if provider not in _CALL or not cfg.generation_api_key:
         return False
     try:
-        from google import genai  # noqa: F401
+        if provider == "gemini":
+            from google import genai  # noqa: F401
+        else:
+            from groq import Groq  # noqa: F401
     except ImportError:
         log.warning(
-            "GEMINI_API_KEY is set but google-genai is not installed; "
-            "answers will fall back to extractive. Run: pip install -r requirements.txt"
+            "%s is selected and its key is set, but its SDK is not installed; "
+            "answers will fall back to extractive. Run: pip install -r "
+            "requirements.txt", provider,
         )
         return False
     return True
+
+
+# ── Streaming ─────────────────────────────────────────────────────────────────
+
+def stream_answer(question: str, chunks: list[RetrievedChunk]):
+    """
+    Yield (kind, payload) as the answer is written.
+
+    kind is "delta" for a fragment of text, or "done" for the terminal event
+    carrying (full_text, answer_source).  Exactly one "done" is yielded, always,
+    including on every failure path — the caller can therefore treat "done" as
+    the single place a response is finalised rather than duplicating fallback
+    handling.
+
+    This is a SYNCHRONOUS generator. The SDK's streaming call is blocking, so the
+    caller must drive it off the event loop (see main.py, iterate_in_threadpool).
+
+    Retry policy differs from generate_answer deliberately. A transient failure
+    is only retried while nothing has been emitted yet: once fragments have
+    reached the reader, restarting would replay text they have already seen, and
+    silently discarding the partial answer to fall back to an extractive one
+    would be worse still.  After first output, a failure ends the stream with
+    what was actually produced.
+    """
+    if not chunks:
+        yield "done", ("No relevant context was found in the indexed documents.",
+                       "extractive")
+        return
+
+    provider = cfg.generation_provider
+    if provider not in _STREAM or not cfg.generation_api_key:
+        log.warning("No generation provider configured; returning extractive answer.")
+        yield "done", (_extractive_answer(question, chunks), "extractive")
+        return
+
+    prompt = _build_prompt(question, chunks)
+    last_error: Exception | None = None
+
+    for attempt in range(_MAX_ATTEMPTS):
+        parts: list[str] = []
+        try:
+            for text in _STREAM[provider](prompt):
+                parts.append(text)
+                yield "delta", text
+
+            if parts:
+                yield "done", ("".join(parts), "generated")
+                return
+            # A stream that completed without a single character is a failure
+            # wearing a success's clothes; treat it as one.
+            last_error = RuntimeError("stream produced no text")
+
+        except ProviderUnavailable as e:
+            log.warning("%s; falling back to extractive.", e)
+            yield "done", (_extractive_answer(question, chunks), "extractive")
+            return
+
+        except Exception as e:  # noqa: BLE001 — must degrade, never raise
+            last_error = e
+            if parts:
+                # Already on screen. Keep it, and say so rather than pretending.
+                log.warning("Stream failed after %d fragments (%s); "
+                            "returning the partial answer.", len(parts), e)
+                yield "done", ("".join(parts), "generated")
+                return
+
+        if attempt + 1 < _MAX_ATTEMPTS and _is_transient(last_error):
+            delay = _BACKOFF_SECONDS * (2 ** attempt)
+            log.warning("Stream attempt %d/%d failed transiently (%s); "
+                        "retrying in %.1fs.",
+                        attempt + 1, _MAX_ATTEMPTS, last_error, delay)
+            time.sleep(delay)
+            continue
+        break
+
+    log.warning("Streaming failed after %d attempt(s) (%s); falling back to "
+                "extractive answer.", _MAX_ATTEMPTS, last_error)
+    yield "done", (_extractive_answer(question, chunks), "extractive")
 
 
 # ── Main generate function ────────────────────────────────────────────────────
@@ -259,33 +453,21 @@ def generate_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, s
     if not chunks:
         return "No relevant context was found in the indexed documents.", "extractive"
 
-    api_key = cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")
-
-    if not api_key:
-        log.warning("No generation API key configured; returning extractive answer.")
+    provider = cfg.generation_provider
+    if provider not in _CALL or not cfg.generation_api_key:
+        log.warning("No generation provider configured; returning extractive answer.")
         return _extractive_answer(question, chunks), "extractive"
 
     prompt = _build_prompt(question, chunks)
 
-    try:
-        from google import genai  # google-genai SDK (NOT google-generativeai)
-    except ImportError:
-        log.warning(
-            "google-genai is not installed; falling back to extractive answer. "
-            "Run: pip install -r requirements.txt"
-        )
-        return _extractive_answer(question, chunks), "extractive"
-
-    client = genai.Client(api_key=api_key)
-
     last_error: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            response = client.models.generate_content(
-                model=cfg.gemini_model,
-                contents=prompt,
-            )
-            return response.text, "generated"
+            return _CALL[provider](prompt), "generated"
+
+        except ProviderUnavailable as e:
+            log.warning("%s; falling back to extractive answer.", e)
+            return _extractive_answer(question, chunks), "extractive"
 
         except Exception as e:  # noqa: BLE001 — any failure must degrade, not raise
             last_error = e

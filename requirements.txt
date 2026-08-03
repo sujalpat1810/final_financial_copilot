@@ -43,6 +43,11 @@ rank-bm25>=0.2.2
 # IMPORTANT: use google-genai (current SDK), NOT google-generativeai (deprecated)
 google-genai>=1.0.0
 
+# Second backend, selected with GENERATION_PROVIDER=groq. Both are listed because
+# either can be the configured one; whichever is unused is simply never imported,
+# and a missing SDK degrades to an extractive answer rather than failing to start.
+groq>=0.11.0
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 numpy>=1.26.0
 pydantic>=2.7.0
