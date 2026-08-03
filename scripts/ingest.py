@@ -49,6 +49,16 @@ import sys
 import time
 from pathlib import Path
 
+# Must precede any app import: app.config reads os.environ at import time, so
+# VECTOR_STORE_BACKEND and the Chroma credentials — which live only in .env —
+# would otherwise be invisible and this would ingest into the default backend
+# rather than the configured one.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 DEFAULT_MANIFEST = Path("scripts/corpus.json")
 
 

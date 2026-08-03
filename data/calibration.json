@@ -1,0 +1,668 @@
+[
+  {
+    "question": "What was Infosys consolidated revenue in FY2024-25?",
+    "kind": "pinned",
+    "top": 7.5253400802612305,
+    "scores": [
+      7.5253400802612305,
+      7.236577987670898,
+      7.140239238739014,
+      6.7483367919921875,
+      6.356342315673828
+    ],
+    "expected_rank": null,
+    "rank_any_basis": 5,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 344,
+        "basis": "consolidated",
+        "score": 7.5253400802612305,
+        "source": "hybrid"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 76,
+        "basis": null,
+        "score": 7.236577987670898,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 306,
+        "basis": "consolidated",
+        "score": 7.140239238739014,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What was Infosys standalone revenue in FY2024-25?",
+    "kind": "pinned",
+    "top": 6.824297904968262,
+    "scores": [
+      6.824297904968262,
+      6.582657814025879,
+      6.1279449462890625,
+      6.022239685058594,
+      5.786863803863525
+    ],
+    "expected_rank": null,
+    "rank_any_basis": 5,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 76,
+        "basis": null,
+        "score": 6.824297904968262,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 208,
+        "basis": "standalone",
+        "score": 6.582657814025879,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 73,
+        "basis": null,
+        "score": 6.1279449462890625,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What was TCS consolidated revenue in FY2024-25?",
+    "kind": "pinned",
+    "top": 7.136157989501953,
+    "scores": [
+      7.136157989501953,
+      6.613302230834961,
+      6.55177116394043,
+      6.275944232940674,
+      6.21757698059082
+    ],
+    "expected_rank": 1,
+    "rank_any_basis": 1,
+    "top_hits": [
+      {
+        "doc": "TCS FY2024-25",
+        "page": 229,
+        "basis": "consolidated",
+        "score": 7.136157989501953,
+        "source": "vector"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 229,
+        "basis": "consolidated",
+        "score": 6.613302230834961,
+        "source": "vector"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 230,
+        "basis": "consolidated",
+        "score": 6.55177116394043,
+        "source": "vector"
+      }
+    ]
+  },
+  {
+    "question": "What was TCS standalone revenue in FY2024-25?",
+    "kind": "pinned",
+    "top": 6.718562126159668,
+    "scores": [
+      6.718562126159668,
+      6.206324577331543,
+      6.159425735473633,
+      6.032988548278809,
+      5.979339599609375
+    ],
+    "expected_rank": 2,
+    "rank_any_basis": 2,
+    "top_hits": [
+      {
+        "doc": "TCS FY2024-25",
+        "page": 287,
+        "basis": "standalone",
+        "score": 6.718562126159668,
+        "source": "vector"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 288,
+        "basis": "standalone",
+        "score": 6.206324577331543,
+        "source": "bm25"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 242,
+        "basis": "standalone",
+        "score": 6.159425735473633,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What was Infosys consolidated revenue in FY2025-26?",
+    "kind": "pinned",
+    "top": 7.967168807983398,
+    "scores": [
+      7.967168807983398,
+      6.927648544311523,
+      6.85605001449585,
+      6.738328456878662,
+      6.730487823486328
+    ],
+    "expected_rank": 1,
+    "rank_any_basis": 1,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 333,
+        "basis": "consolidated",
+        "score": 7.967168807983398,
+        "source": "hybrid"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 332,
+        "basis": "consolidated",
+        "score": 6.927648544311523,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 76,
+        "basis": null,
+        "score": 6.85605001449585,
+        "source": "vector"
+      }
+    ]
+  },
+  {
+    "question": "Who audited Infosys and was the opinion unqualified?",
+    "kind": "open",
+    "top": 3.4454903602600098,
+    "scores": [
+      3.4454903602600098,
+      3.4325432777404785,
+      2.883965492248535,
+      2.8380417823791504,
+      1.617068886756897
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 265,
+        "basis": "consolidated",
+        "score": 3.4454903602600098,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 276,
+        "basis": "consolidated",
+        "score": 3.4325432777404785,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 195,
+        "basis": "standalone",
+        "score": 2.883965492248535,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What contingent liabilities are disclosed?",
+    "kind": "open",
+    "top": 4.242136001586914,
+    "scores": [
+      4.242136001586914,
+      3.2570013999938965,
+      3.181478500366211,
+      2.2772486209869385,
+      1.8508518934249878
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "TCS FY2024-25",
+        "page": 259,
+        "basis": "standalone",
+        "score": 4.242136001586914,
+        "source": "hybrid"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 259,
+        "basis": "standalone",
+        "score": 3.2570013999938965,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 262,
+        "basis": "standalone",
+        "score": 3.181478500366211,
+        "source": "vector"
+      }
+    ]
+  },
+  {
+    "question": "List related party transactions",
+    "kind": "open",
+    "top": 5.043922424316406,
+    "scores": [
+      5.043922424316406,
+      5.022899150848389,
+      4.488418102264404,
+      3.3993332386016846,
+      3.1849746704101562
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 333,
+        "basis": "consolidated",
+        "score": 5.043922424316406,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 354,
+        "basis": null,
+        "score": 5.022899150848389,
+        "source": "hybrid"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 355,
+        "basis": null,
+        "score": 4.488418102264404,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What was the profit for the year?",
+    "kind": "open",
+    "top": -2.2350270748138428,
+    "scores": [
+      -2.2350270748138428,
+      -2.3572115898132324,
+      -2.5806541442871094,
+      -3.3203511238098145,
+      -3.721503973007202
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 317,
+        "basis": "consolidated",
+        "score": -2.2350270748138428,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 238,
+        "basis": "standalone",
+        "score": -2.3572115898132324,
+        "source": "bm25"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 229,
+        "basis": "consolidated",
+        "score": -2.5806541442871094,
+        "source": "vector"
+      }
+    ]
+  },
+  {
+    "question": "What are the key risk factors?",
+    "kind": "open",
+    "top": 0.20212948322296143,
+    "scores": [
+      0.20212948322296143,
+      -0.39625298976898193,
+      -1.8622729778289795,
+      -2.7074241638183594,
+      -2.713148832321167
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 303,
+        "basis": "consolidated",
+        "score": 0.20212948322296143,
+        "source": "hybrid"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 130,
+        "basis": null,
+        "score": -0.39625298976898193,
+        "source": "hybrid"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 121,
+        "basis": null,
+        "score": -1.8622729778289795,
+        "source": "hybrid"
+      }
+    ]
+  },
+  {
+    "question": "What is the dividend per share?",
+    "kind": "open",
+    "top": 1.6534024477005005,
+    "scores": [
+      1.6534024477005005,
+      1.4947198629379272,
+      1.4238635301589966,
+      1.4130784273147583,
+      0.37889546155929565
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "TCS FY2024-25",
+        "page": 42,
+        "basis": null,
+        "score": 1.6534024477005005,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 231,
+        "basis": "standalone",
+        "score": 1.4947198629379272,
+        "source": "hybrid"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 240,
+        "basis": "consolidated",
+        "score": 1.4238635301589966,
+        "source": "hybrid"
+      }
+    ]
+  },
+  {
+    "question": "What was revenue?",
+    "kind": "open",
+    "top": -0.9345166087150574,
+    "scores": [
+      -0.9345166087150574,
+      -2.1450209617614746,
+      -2.354325771331787,
+      -3.9317150115966797,
+      -3.9513752460479736
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 332,
+        "basis": "consolidated",
+        "score": -0.9345166087150574,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 253,
+        "basis": "standalone",
+        "score": -2.1450209617614746,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 321,
+        "basis": "consolidated",
+        "score": -2.354325771331787,
+        "source": "vector"
+      }
+    ]
+  },
+  {
+    "question": "What was Wipro's revenue in FY2025?",
+    "kind": "absent",
+    "top": 1.3288629055023193,
+    "scores": [
+      1.3288629055023193,
+      0.4760291576385498,
+      -0.6825259327888489,
+      -1.2108765840530396,
+      -1.3984447717666626
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 371,
+        "basis": null,
+        "score": 1.3288629055023193,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 356,
+        "basis": "consolidated",
+        "score": 0.4760291576385498,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 367,
+        "basis": null,
+        "score": -0.6825259327888489,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What was HDFC Bank's net interest margin?",
+    "kind": "absent",
+    "top": -5.601494789123535,
+    "scores": [
+      -5.601494789123535,
+      -6.7540202140808105,
+      -7.049710273742676,
+      -7.179777145385742,
+      -7.432370662689209
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 21,
+        "basis": null,
+        "score": -5.601494789123535,
+        "source": "bm25"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 101,
+        "basis": null,
+        "score": -6.7540202140808105,
+        "source": "bm25"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 273,
+        "basis": "standalone",
+        "score": -7.049710273742676,
+        "source": "hybrid"
+      }
+    ]
+  },
+  {
+    "question": "How many employees does Reliance Industries have?",
+    "kind": "absent",
+    "top": -4.697360038757324,
+    "scores": [
+      -4.697360038757324,
+      -7.208725452423096,
+      -8.253437042236328,
+      -8.488286972045898,
+      -8.90798282623291
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 143,
+        "basis": null,
+        "score": -4.697360038757324,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 36,
+        "basis": null,
+        "score": -7.208725452423096,
+        "source": "bm25"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 124,
+        "basis": null,
+        "score": -8.253437042236328,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What is the capital adequacy ratio of State Bank of India?",
+    "kind": "absent",
+    "top": -2.4409379959106445,
+    "scores": [
+      -2.4409379959106445,
+      -3.5478649139404297,
+      -4.515031814575195,
+      -4.583329200744629,
+      -4.841281414031982
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 225,
+        "basis": "standalone",
+        "score": -2.4409379959106445,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 33,
+        "basis": null,
+        "score": -3.5478649139404297,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 72,
+        "basis": null,
+        "score": -4.515031814575195,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What did the company say about lunar mining operations?",
+    "kind": "absent",
+    "top": -8.990053176879883,
+    "scores": [
+      -8.990053176879883,
+      -9.041814804077148,
+      -10.195623397827148,
+      -10.243524551391602,
+      -10.625797271728516
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "TCS FY2024-25",
+        "page": 314,
+        "basis": null,
+        "score": -8.990053176879883,
+        "source": "bm25"
+      },
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 6,
+        "basis": null,
+        "score": -9.041814804077148,
+        "source": "vector"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 126,
+        "basis": null,
+        "score": -10.195623397827148,
+        "source": "bm25"
+      }
+    ]
+  },
+  {
+    "question": "What is the melting point of tungsten?",
+    "kind": "absent",
+    "top": -11.20389175415039,
+    "scores": [
+      -11.20389175415039,
+      -11.203981399536133,
+      -11.213397026062012,
+      -11.224782943725586,
+      -11.23219108581543
+    ],
+    "expected_rank": null,
+    "rank_any_basis": null,
+    "top_hits": [
+      {
+        "doc": "Infosys FY2024-25",
+        "page": 165,
+        "basis": null,
+        "score": -11.20389175415039,
+        "source": "vector"
+      },
+      {
+        "doc": "Infosys FY2025-26",
+        "page": 176,
+        "basis": null,
+        "score": -11.203981399536133,
+        "source": "vector"
+      },
+      {
+        "doc": "TCS FY2024-25",
+        "page": 155,
+        "basis": null,
+        "score": -11.213397026062012,
+        "source": "vector"
+      }
+    ]
+  }
+]

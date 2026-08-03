@@ -50,7 +50,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import cfg
 from app.confidence import assess, relevance
-from app.generation import generate_answer
+from app.entities import foreign_entities
+from app.generation import generate_answer, generation_available
 from app.ingestion import (
     AlreadyIndexed,
     ContentConflict,
@@ -249,8 +250,15 @@ async def query(req: QueryRequest):
     retriever: HybridRetriever = _state["retriever"]
     vs = _state.get("vs")
 
+    docs = list_documents()
     chunks_searched = vs.get_chunk_count() if vs else 0
-    documents_searched = len(list_documents())
+    documents_searched = len(docs)
+
+    # Which companies the index actually covers, read per request rather than
+    # cached: ingesting a new entity must stop the gate below firing on it
+    # without a restart.
+    indexed_entities = sorted({d.entity for d in docs if d.entity})
+    foreign = foreign_entities(req.question, set(indexed_entities))
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
     t0 = time.perf_counter()
@@ -267,7 +275,15 @@ async def query(req: QueryRequest):
     # Assessed BEFORE generation, and generation is skipped entirely when the
     # evidence is below the floor — nothing is generated and then thrown away.
     # An empty result set falls out of this naturally: assess([]) is INSUFFICIENT.
-    assessment = assess([r.rerank_score for r in results])
+    # Retrieval still runs when `foreign` is non-empty: the near-miss chunks are
+    # what the insufficient-evidence card shows, and they are how a reader sees
+    # that the tool searched the right documents and simply lacks the company.
+    # The expensive half — generation — is what the gate skips.
+    assessment = assess(
+        [r.rerank_score for r in results],
+        foreign_entities=foreign,
+        indexed_entities=indexed_entities,
+    )
 
     if assessment.abstained:
         log.info(
@@ -381,7 +397,7 @@ async def health_check():
         vector_store_backend=cfg.vector_store_backend,
         embedding_model=cfg.embedding_model,
         reranker_model=cfg.reranker_model,
-        generation_available=bool(cfg.gemini_api_key),
+        generation_available=generation_available(),
         documents_indexed=chunk_count,
     )
 

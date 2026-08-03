@@ -1,7 +1,8 @@
 # Financial Research Copilot
 
 An enterprise-grade **Hybrid RAG** system for analyzing annual reports and financial documents.
-Generation backend: **Gemini 2.5 Flash** (via the official `google-genai` SDK).
+Generation backend: **Gemini 3.6 Flash** (via the official `google-genai` SDK).
+Set with `GEMINI_MODEL`; `gemini-2.5-flash` is retired for new API keys.
 
 ---
 
@@ -55,7 +56,7 @@ Generation backend: **Gemini 2.5 Flash** (via the official `google-genai` SDK).
                         │      Top-N Chunks + Citations    │          │
                         │           │                                  │
                         │           ▼                                  │
-                        │      Gemini 2.5 Flash                       │
+                        │      Gemini 3.6 Flash                       │
                         │      (with page-citation prompt)            │
                         │           │                                  │
                         │           ▼                                  │
@@ -106,15 +107,20 @@ financial_copilot/
 │   ├── ingestion.py      — PDF parse → semantic chunk → persist to JSON store
 │   ├── vector_store.py   — FAISS + ChromaDB behind a shared VectorStore ABC
 │   ├── retrieval.py      — EmbeddingModel, BM25Index, Reranker, HybridRetriever
-│   ├── generation.py     — Gemini 2.5 Flash call + extractive fallback
+│   ├── confidence.py     — score → confidence label; the abstention decision
+│   ├── entities.py       — refuses questions about companies that aren't indexed
+│   ├── generation.py     — Gemini call, transient retry + extractive fallback
 │   └── main.py           — FastAPI routes + startup lifecycle
 ├── pdf_data/             — source corpus: real annual reports (gitignored)
 ├── scripts/
+│   ├── ingest.py             — bulk-ingest the corpus from a manifest
+│   ├── reindex.py            — repopulate a vector store after switching backend
 │   └── make_basis_fixture.py — regenerates the basis-detection test fixture
 ├── tests/
 │   ├── test_basis_detection.py — standalone/consolidated boundaries vs ground truth
 │   ├── test_chunking.py        — unit tests for chunking and heading detection
 │   ├── test_confidence.py      — confidence + abstention decision boundaries
+│   ├── test_entity_gate.py     — unindexed-company refusals, and their false positives
 │   ├── test_ingest_metadata.py — provenance survives ingest onto every chunk
 │   ├── test_query_endpoint.py  — /query contract, incl. the abstention gate
 │   └── test_retrieval.py       — unit tests for BM25 and merge/dedup logic
@@ -225,50 +231,160 @@ API docs are available at `http://localhost:8000/docs`.
 ## API Reference
 
 ### `POST /ingest`
-Upload a PDF for indexing.
+Upload a PDF for indexing. `entity` and `fiscal_year` are **required** — they are
+never inferred from the document (see *Ingest the corpus* above).
 
 ```bash
 curl -X POST http://localhost:8000/ingest \
-  -F "file=@path/to/annual_report.pdf" \
-  -F "doc_name=Apple 10-K FY2023"
+  -F "file=@pdf_data/infosys-ar-25.pdf" \
+  -F "doc_name=Infosys FY2024-25" \
+  -F "entity=Infosys" \
+  -F "fiscal_year=FY2024-25"
 ```
 
-### `POST /query`
-Ask a question with optional filters.
+Returns `409` if a document of that name is already indexed: identical content is
+`AlreadyIndexed`, changed content is `ContentConflict`. Re-ingesting is refused
+rather than merged, because the vector store cannot delete the old chunks and a
+silent second copy could not be undone.
 
+### `POST /query`
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{
-    "question": "What was total revenue in FY2023?",
-    "fiscal_year": "FY2023",
-    "doc_name": "Apple 10-K FY2023",
-    "top_n": 5
-  }'
+  -d '{"question": "What was Infosys consolidated revenue in FY2024-25?"}'
 ```
 
+The response is additive over the original shape. Beyond `answer` and `sources`:
+
+| field | meaning |
+|---|---|
+| `confidence` | `high` / `moderate` / `low` / `insufficient` |
+| `confidence_reason` | the arithmetic behind the label, e.g. `top match 6.4, 3 supporting chunks` |
+| `abstained` | when true, `answer` is empty and **no generation call was made** |
+| `abstention_reason` | what to tell the user |
+| `documents_searched`, `chunks_searched` | scope, for the insufficient-evidence card |
+
+Each entry in `sources` carries `doc_id`, `chunk_id`, `entity`, `fiscal_year`,
+`basis`, `rerank_score`, `relevance` (0–100 display transform) and `is_table`.
+`basis` is `null` when it could not be determined — the UI must show that as
+undetermined rather than resolving it.
+
+`answer_source` is `generated` or `extractive`. Deliberately vendor-neutral:
+what matters to the reader is whether the answer was synthesised or quoted.
+
+#### Two ways a query abstains
+
+**The score floor** catches questions the corpus has no material on at all.
+
+**The entity gate** (`app/entities.py`) catches questions about a company that
+was never indexed — which the score floor provably cannot. Measured over
+`data/calibration.json`, four of the six unindexed-company questions scored
+*above* the −6.0 floor:
+
+| question | top score | floor catches it? |
+|---|---|---|
+| melting point of tungsten | −11.20 | yes |
+| lunar mining operations | −8.99 | yes |
+| HDFC Bank net interest margin | −5.60 | no |
+| Reliance Industries headcount | −4.70 | no |
+| State Bank of India CAR | −2.44 | no |
+| Wipro revenue FY2025 | **+1.33** | no |
+
+Raising the floor cannot close this. Legitimate open questions on the same
+corpus run down to −2.24 ("What was the profit for the year?"), so any threshold
+that catches Wipro at +1.33 also throws away half the questions the tool exists
+to answer. The bands overlap because the reranker measures topical similarity,
+and a peer's financial question is topically identical — an Infosys revenue
+table really is a good match for "Wipro's revenue". The cross-encoder is not
+wrong; it was never asked whether the company matched.
+
+So the gate is categorical rather than scalar: if the question names a company
+that is not indexed, no score is high enough to make answering it correct, and
+generation is skipped before a single score is read.
+
+It fires only on names it positively recognises — a curated peer gazetteer plus
+a corporate-suffix rule ("… Limited", "… Bank"). Unrecognised companies fall
+through to the score floor. That asymmetry is deliberate: a false positive
+refuses a question the corpus could have answered and looks like a bug, while a
+false negative just leaves the previous behaviour in place. A gate keyed on
+capitalisation instead would trip over "Ind AS", "March 31, 2025" and "Board of
+Directors" — all frequent, none of them companies.
+
+The indexed entity set is read per request, so ingesting Wipro stops the gate
+firing on Wipro with no code change.
+
+**Known trade-off:** a question naming both an indexed and an unindexed company
+("Compare Infosys and Wipro") abstains entirely rather than answering the half
+it can. Answering with Infosys figures alone invites the reader to attribute
+them to both.
+
 ### `GET /documents`
-List all ingested documents.
+Lists indexed documents with entity, fiscal year, page and chunk counts,
+per-basis page counts, and `has_file` — whether the original PDF is on disk and
+so whether citations can open it.
+
+### `GET /documents/{doc_id}/file`
+Serves the original PDF inline, so a citation can open the page it came from.
+`404` distinguishes an unknown `doc_id` from an indexed document whose PDF is
+missing, because the fix differs.
 
 ### `GET /health`
-Check service status, active backend, and whether Gemini is available.
+Service status, active backend, and whether generation is configured. Reports
+`generation_available` rather than naming a model vendor — `/docs` is public.
+
+### `GET /app`
+The frontend. Static files, no build step.
 
 ---
 
 ## Switching Vector Store Backend
 
-Edit `.env`:
+Two steps — the second is not optional:
 
 ```bash
+# 1. choose the backend in .env
 VECTOR_STORE_BACKEND=chroma   # or "faiss" (default)
+
+# 2. populate it
+python -m scripts.reindex
 ```
 
-Both backends implement the same `VectorStore` ABC in `vector_store.py`, so no
-other code changes are needed.
+`scripts.ingest` cannot do step 2. It is idempotent against the content hash in
+`data/chunk_store.json`, so with the documents already recorded it skips all of
+them as `AlreadyIndexed` and leaves the new backend empty — a switch that looks
+like it worked and leaves nothing to retrieve. `scripts.reindex` starts from the
+chunk store instead: no PDF is re-parsed and no chunk boundary moves, only the
+embeddings are recomputed (~100 s for 2,191 chunks on CPU).
 
-**FAISS** — better for: fast prototyping, single-node, in-memory speed.  
-**ChromaDB** — better for: built-in metadata filtering, persistent SQLite storage,
-easier to inspect with the Chroma browser.
+Both backends implement the same `VectorStore` ABC in `vector_store.py`, so no
+application code changes when you switch.
+
+**FAISS** — local, in-memory, ~0.1 ms a search. Best for development and for a
+demo that must not depend on the network.  
+**ChromaDB** — richer metadata filtering; runs either on local disk or against
+**Chroma Cloud**, the managed service.
+
+### Chroma Cloud
+
+Setting `CHROMA_API_KEY` switches the chroma backend from a local on-disk client
+to the managed service. Tenant and database are required alongside it — all three
+are on the Chroma Cloud dashboard:
+
+```bash
+VECTOR_STORE_BACKEND=chroma
+CHROMA_API_KEY=ck-...
+CHROMA_TENANT=...
+CHROMA_DATABASE=...
+```
+
+An API key without a tenant and database is refused at startup rather than at the
+first query, when the service would already look healthy.
+
+Measured on the 2,191-chunk corpus: a Chroma Cloud vector search takes **~493 ms**
+against **~0.1 ms** for local FAISS. That sounds decisive and mostly isn't — the
+cross-encoder reranker costs ~2 s and generation 2–20 s, so the cloud round trip
+is a single-digit percentage of a full query. It is a network dependency, though,
+which is the real reason to prefer FAISS when the network is not yours.
 
 ---
 
@@ -297,7 +413,7 @@ The tests cover:
 | Reranker | CrossEncoder (sentence-transformers) | Cross-encoders are far more accurate than bi-encoders for final ranking |
 | Orchestration | LangChain | EmbeddingModel implements LangChain's Embeddings interface for composability |
 | Document store | LlamaIndex | Page-level node abstraction with metadata; used for the chunk store design |
-| Generation | Google Gemini 2.5 Flash | Fast, high-quality, long context; supports citation-aware prompting |
+| Generation | Google Gemini 3.6 Flash | Fast, high-quality, long context; supports citation-aware prompting |
 | API | FastAPI | Async, automatic OpenAPI docs, native Pydantic integration |
 
 ---
@@ -311,7 +427,7 @@ The tests cover:
 | Vector search (top-10, 500 chunks) | < 5 ms |
 | BM25 search (top-10, 500 chunks) | < 2 ms |
 | Cross-encoder rerank (20 candidates) | 200–600 ms |
-| Gemini 2.5 Flash generation | 1–4 s |
+| Gemini 3.6 Flash generation | 2–20 s (thinking model; slower than 2.5 Flash) |
 
 Every `/query` response includes `retrieval_latency_ms` and `generation_latency_ms`
 so you can quote real numbers from your own run.

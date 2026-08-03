@@ -9,6 +9,8 @@ response carries what the abstention card needs to render.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -55,10 +57,27 @@ class _StubStore:
         return 5448
 
 
+@dataclass
+class _StubDoc:
+    """
+    Stands in for DocumentInfo.
+
+    Carries `entity` because /query reads the indexed entity set to run the
+    unindexed-company gate (app/entities.py).  A bare object() was enough when
+    the endpoint only counted documents; it silently became a lie the moment the
+    count stopped being all the endpoint needed.
+    """
+    entity: str
+
+
+# Mirrors the demo corpus: two companies across three documents.
+_STUB_DOCS = [_StubDoc("Infosys"), _StubDoc("Infosys"), _StubDoc("TCS")]
+
+
 @pytest.fixture
 def client(monkeypatch):
     """A TestClient that bypasses lifespan (which would load real models)."""
-    monkeypatch.setattr(main, "list_documents", lambda: [object()] * 3)
+    monkeypatch.setattr(main, "list_documents", lambda: list(_STUB_DOCS))
     monkeypatch.setitem(main._state, "vs", _StubStore())
     return TestClient(main.app)
 
@@ -96,6 +115,55 @@ def test_below_floor_abstains_without_generating(client, monkeypatch):
     assert body["answer"] == ""
     assert body["abstention_reason"]
     assert body["generation_latency_ms"] == 0.0
+
+
+def test_unindexed_company_abstains_even_on_strong_scores(client, monkeypatch):
+    """
+    The gap the entity gate closes, at the endpoint level.
+
+    These scores are the profile of a confident answer — before the gate this
+    question returned "moderate" confidence and a generated answer built from
+    Infosys and TCS passages.  Retrieval is not at fault: a peer's revenue
+    question genuinely matches a revenue table.  Only the company is wrong, and
+    no score can fix that.
+    """
+    calls = _generation_spy(monkeypatch)
+    _install(monkeypatch, [
+        RetrievedChunk(chunk=_chunk(30, "revenue from operations"), rerank_score=7.5),
+        RetrievedChunk(chunk=_chunk(31, "segment revenue"), rerank_score=6.9),
+    ])
+
+    body = client.post(
+        "/query", json={"question": "What was Wipro's revenue in FY2025?"}
+    ).json()
+
+    assert calls == [], "generation ran for a company that is not indexed"
+    assert body["abstained"] is True
+    assert body["confidence"] == "insufficient"
+    assert body["answer"] == ""
+    assert "Wipro" in body["abstention_reason"]
+    # The refusal must say what IS covered, or the reader has no next step.
+    assert "Infosys" in body["abstention_reason"]
+    assert "TCS" in body["abstention_reason"]
+    # Near-misses still render, so the card can show the search really ran.
+    assert body["sources"]
+
+
+def test_indexed_company_with_strong_scores_still_generates(client, monkeypatch):
+    """The gate must not have made the happy path abstain."""
+    calls = _generation_spy(monkeypatch)
+    _install(monkeypatch, [
+        RetrievedChunk(chunk=_chunk(30, "revenue from operations"), rerank_score=7.5),
+        RetrievedChunk(chunk=_chunk(31, "segment revenue"), rerank_score=6.9),
+    ])
+
+    body = client.post(
+        "/query", json={"question": "What was Infosys consolidated revenue in FY2024-25?"}
+    ).json()
+
+    assert body["abstained"] is False
+    assert body["confidence"] == "high"
+    assert len(calls) == 1
 
 
 def test_abstention_reports_what_was_searched(client, monkeypatch):

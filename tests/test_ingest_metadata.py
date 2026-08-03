@@ -205,3 +205,47 @@ def test_bm25_indexes_the_provenance_line(tmp_path, monkeypatch):
     hits = index.search("consolidated financial statements", top_k=5)
     assert hits, "the provenance line was not indexed"
     assert hits[0].chunk.metadata.basis == "consolidated"
+
+
+def test_reranker_scores_the_indexed_text_not_the_bare_text():
+    """
+    Regression. The provenance line was added to embedding and BM25 but not to
+    the reranker, and the effect was invisible: retrieval still ran, still
+    returned five chunks, and every score came back exactly as before. The
+    cross-encoder decides the FINAL order, so a chunk whose entity, year and
+    basis it cannot see loses to a narrative page that merely discusses the
+    topic in prose — which is what kept the financial statements out of the
+    results even after they became retrievable.
+    """
+    import numpy
+
+    from app.models import Chunk, ChunkMetadata, RetrievedChunk
+    from app.retrieval import Reranker
+
+    class _RecordingModel:
+        def __init__(self):
+            self.pairs = []
+
+        def predict(self, pairs):
+            self.pairs = list(pairs)
+            # numpy array, matching CrossEncoder.predict — the caller uses .tolist()
+            return numpy.zeros(len(pairs))
+
+    # Bypass __init__ so no real CrossEncoder is downloaded.
+    reranker = Reranker.__new__(Reranker)
+    model = _RecordingModel()
+    reranker._model = model
+
+    meta = ChunkMetadata(
+        chunk_id="c", doc_id="d", doc_name="Infosys FY2024-25", page_number=276,
+        entity="Infosys", fiscal_year="FY2024-25", basis="consolidated",
+    )
+    chunk = Chunk(chunk_id="c", text="[TABLE]\nRevenue from operations | 162,990",
+                  metadata=meta)
+
+    reranker.rerank("What was Infosys consolidated revenue?", [RetrievedChunk(chunk=chunk)])
+
+    scored_text = model.pairs[0][1]
+    assert "consolidated" in scored_text, "reranker cannot see the basis"
+    assert "Infosys" in scored_text, "reranker cannot see the entity"
+    assert scored_text == chunk.indexed_text

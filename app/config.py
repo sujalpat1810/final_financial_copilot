@@ -25,6 +25,26 @@ class Config:
     chroma_persist_dir: str = field(
         default_factory=lambda: os.getenv("CHROMA_PERSIST_DIR", "data/chroma_db")
     )
+
+    # ── Chroma Cloud ──────────────────────────────────────────────────────────
+    # Setting an API key switches the chroma backend from a local on-disk client
+    # to the managed service; tenant and database identify which one.  Leaving
+    # the key unset keeps chroma purely local, so a checkout with no credentials
+    # still runs.  All three are required together — see validate().
+    chroma_api_key: str | None = field(
+        default_factory=lambda: os.getenv("CHROMA_API_KEY") or None
+    )
+    chroma_tenant: str | None = field(
+        default_factory=lambda: os.getenv("CHROMA_TENANT") or None
+    )
+    chroma_database: str | None = field(
+        default_factory=lambda: os.getenv("CHROMA_DATABASE") or None
+    )
+
+    @property
+    def chroma_is_cloud(self) -> bool:
+        """Whether the chroma backend should talk to the managed service."""
+        return bool(self.chroma_api_key)
     bm25_index_path: str = field(
         default_factory=lambda: os.getenv("BM25_INDEX_PATH", "data/bm25_index.pkl")
     )
@@ -62,8 +82,19 @@ class Config:
     chunk_overlap_sentences: int = int(os.getenv("CHUNK_OVERLAP_SENTENCES", "1"))
 
     # ── Generation ───────────────────────────────────────────────────────────
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
+    # gemini-2.5-flash is retired for new API keys: it is still returned by
+    # models.list() but generate_content answers 404 "no longer available to new
+    # users".  generate_answer catches that and falls back to extractive, so a
+    # stale default here costs every generated answer without raising anything.
+    gemini_model: str = field(
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    )
+    # default_factory for the same reason as the thresholds below: a bare
+    # os.getenv() default is evaluated at import, so it would miss a key that
+    # load_dotenv() puts in the environment after this module is first imported.
+    gemini_api_key: str | None = field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY")
+    )
 
     # ── Confidence + abstention thresholds ────────────────────────────────────
     # These are RAW CROSS-ENCODER LOGITS, not probabilities.  The reranker
@@ -122,6 +153,22 @@ class Config:
                 "CONFIDENCE_MIN_SUPPORTING must be >= 1; got "
                 f"{self.confidence_min_supporting}."
             )
+        # A key without a tenant or database does not degrade to local Chroma —
+        # it fails at the first query, by which point the service looks up and
+        # healthy.  Refuse at startup instead, naming the missing variable.
+        if self.chroma_api_key:
+            missing = [
+                name for name, value in (
+                    ("CHROMA_TENANT", self.chroma_tenant),
+                    ("CHROMA_DATABASE", self.chroma_database),
+                ) if not value
+            ]
+            if missing:
+                raise ValueError(
+                    "CHROMA_API_KEY is set, so Chroma Cloud is selected, but "
+                    f"{' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} "
+                    "missing. Find both on the Chroma Cloud dashboard."
+                )
 
 
 # Singleton — import this everywhere instead of constructing a new Config each time.
