@@ -6,11 +6,14 @@ plus the vendor-neutrality of everything the user can see.
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app import generation, main
-from app.config import cfg
+from app.config import Config, cfg
 from app.generation import _build_prompt, _source_label, generate_answer
 from app.models import Chunk, ChunkMetadata, RetrievedChunk
 
@@ -33,6 +36,23 @@ def _rc(page=276, text="Revenue from operations 162,990 153,670",
         ),
         rerank_score=score,
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider(monkeypatch):
+    """
+    Pin the generation provider away from whatever .env happens to hold.
+
+    cfg.generation_provider resolves from whichever key is present, so a real
+    GROQ_API_KEY in .env would silently make the "no key configured" tests select
+    Groq and attempt a live network call — a suite that quietly starts spending
+    someone's rate limit is worse than one that fails.
+
+    Tests that exercise a provider opt in by setting its key themselves.
+    """
+    monkeypatch.setattr(cfg, "generation_provider_setting", None)
+    monkeypatch.setattr(cfg, "groq_api_key", None)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
 
 
 # ── Source labels ─────────────────────────────────────────────────────────────
@@ -228,6 +248,141 @@ def test_permanent_failure_is_not_retried(monkeypatch, message):
 ])
 def test_transient_classification(message, transient):
     assert generation._is_transient(RuntimeError(message)) is transient
+
+
+# ── Provider selection and Groq ───────────────────────────────────────────────
+
+def _stub_groq(monkeypatch, side_effects):
+    """
+    Install a fake groq module and replay side_effects per call.
+
+    A module object rather than the real SDK, so the suite neither requires groq
+    to be installed nor is able to reach the network.
+    """
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        effect = side_effects[min(len(calls) - 1, len(side_effects) - 1)]
+        if isinstance(effect, Exception):
+            raise effect
+        if kwargs.get("stream"):
+            def gen():
+                for piece in effect:
+                    yield types.SimpleNamespace(
+                        choices=[types.SimpleNamespace(
+                            delta=types.SimpleNamespace(content=piece))])
+            return gen()
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content=effect))])
+
+    class _Groq:
+        def __init__(self, **_kw):
+            self.chat = types.SimpleNamespace(
+                completions=types.SimpleNamespace(create=create))
+
+    module = types.ModuleType("groq")
+    module.Groq = _Groq
+    monkeypatch.setitem(sys.modules, "groq", module)
+    monkeypatch.setattr(generation, "_BACKOFF_SECONDS", 0.0)
+    return calls
+
+
+def test_groq_key_alone_selects_groq(monkeypatch):
+    """Adding a key is enough to switch; no second setting to remember."""
+    monkeypatch.setattr(cfg, "gemini_api_key", None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "groq_api_key", "gsk-test")
+    assert cfg.generation_provider == "groq"
+
+
+def test_explicit_setting_beats_key_presence(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", "k")
+    monkeypatch.setattr(cfg, "groq_api_key", "gsk-test")
+    monkeypatch.setattr(cfg, "generation_provider_setting", "groq")
+    assert cfg.generation_provider == "groq"
+    assert cfg.generation_model == cfg.groq_model
+
+
+def test_groq_generates(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "groq_api_key", "gsk-test")
+    calls = _stub_groq(monkeypatch, ["Revenue was Rs 1,62,990 crore [Page 30]."])
+
+    answer, source = generate_answer("q", [_rc()])
+
+    assert source == "generated"
+    assert "1,62,990" in answer
+    assert calls[0]["model"] == cfg.groq_model
+    # One prompt string, both providers - so they answer from identical
+    # instructions and a prompt fix cannot land on only one backend.
+    assert calls[0]["messages"][0]["content"] == generation._build_prompt("q", [_rc()])
+
+
+def test_groq_streams_fragments(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "groq_api_key", "gsk-test")
+    _stub_groq(monkeypatch, [["Revenue ", "was ", "Rs 1,62,990 crore."]])
+
+    events = list(generation.stream_answer("q", [_rc()]))
+
+    deltas = [p for k, p in events if k == "delta"]
+    kind, (full, src) = events[-1]
+    assert kind == "done" and src == "generated"
+    assert deltas == ["Revenue ", "was ", "Rs 1,62,990 crore."]
+    assert full == "Revenue was Rs 1,62,990 crore."
+
+
+def test_groq_failure_falls_back_to_extractive(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "groq_api_key", "gsk-test")
+    _stub_groq(monkeypatch, [RuntimeError("404 model decommissioned")])
+
+    answer, source = generate_answer("q", [_rc()])
+
+    assert source == "extractive"
+    assert "1,62,990" not in answer or "Source" in answer  # verbatim passage, not a claim
+
+
+def test_missing_groq_sdk_degrades_rather_than_raising(monkeypatch):
+    """The SDK is optional; selecting Groq without it must not 500 the request."""
+    monkeypatch.setattr(cfg, "gemini_api_key", None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "groq_api_key", "gsk-test")
+    monkeypatch.setitem(sys.modules, "groq", None)   # import raises
+
+    answer, source = generate_answer("q", [_rc()])
+    assert source == "extractive"
+    assert answer
+
+
+def test_explicit_provider_without_its_key_is_refused(monkeypatch):
+    """
+    Silently extractive is the failure this project keeps rediscovering. An
+    explicitly chosen provider with no key is refused at startup instead.
+    """
+    monkeypatch.setenv("GENERATION_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="GROQ_API_KEY"):
+        Config().validate()
+
+
+def test_unknown_provider_is_refused(monkeypatch):
+    monkeypatch.setenv("GENERATION_PROVIDER", "openai")
+    with pytest.raises(ValueError, match="must be"):
+        Config().validate()
+
+
+def test_no_provider_configured_is_extractive(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", None)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert cfg.generation_provider == "none"
+    _, source = generate_answer("q", [_rc()])
+    assert source == "extractive"
 
 
 # ── A daily quota is not a transient failure ──────────────────────────────────

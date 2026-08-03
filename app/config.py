@@ -93,8 +93,59 @@ class Config:
     # os.getenv() default is evaluated at import, so it would miss a key that
     # load_dotenv() puts in the environment after this module is first imported.
     gemini_api_key: str | None = field(
-        default_factory=lambda: os.getenv("GEMINI_API_KEY")
+        default_factory=lambda: os.getenv("GEMINI_API_KEY") or None
     )
+
+    # ── Groq ──────────────────────────────────────────────────────────────────
+    # A second generation backend, selected with GENERATION_PROVIDER=groq.  Groq
+    # serves open-weight models on its own inference hardware: the appeal here is
+    # that they are not thinking models, so first output arrives in well under a
+    # second where gemini-3.6-flash deliberates for ~28 s before emitting
+    # anything.  That is the difference between an answer that streams and one
+    # that appears all at once.
+    #
+    # Model ids move quickly. If this one has been retired the call fails with a
+    # 404 and the answer degrades to extractive, so set GROQ_MODEL explicitly
+    # rather than trusting this default to age well.
+    groq_model: str = field(
+        default_factory=lambda: os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    )
+    groq_api_key: str | None = field(
+        default_factory=lambda: os.getenv("GROQ_API_KEY") or None
+    )
+
+    # Which backend writes the answer.  Left unset it resolves from whichever key
+    # is present, so adding a key is enough to switch — and setting it explicitly
+    # to a provider whose key is missing is refused at startup rather than
+    # discovered as a silently extractive answer.
+    generation_provider_setting: str | None = field(
+        default_factory=lambda: (os.getenv("GENERATION_PROVIDER") or "").strip().lower()
+        or None
+    )
+
+    @property
+    def generation_provider(self) -> str:
+        """"gemini", "groq", or "none" when no key is configured at all."""
+        if self.generation_provider_setting:
+            return self.generation_provider_setting
+        if self.gemini_api_key:
+            return "gemini"
+        if self.groq_api_key:
+            return "groq"
+        return "none"
+
+    @property
+    def generation_model(self) -> str:
+        """The model id for the active provider — for logs, never for responses."""
+        return {"gemini": self.gemini_model, "groq": self.groq_model}.get(
+            self.generation_provider, ""
+        )
+
+    @property
+    def generation_api_key(self) -> str | None:
+        return {"gemini": self.gemini_api_key, "groq": self.groq_api_key}.get(
+            self.generation_provider
+        )
 
     # ── Confidence + abstention thresholds ────────────────────────────────────
     # These are RAW CROSS-ENCODER LOGITS, not probabilities.  The reranker
@@ -153,6 +204,23 @@ class Config:
                 "CONFIDENCE_MIN_SUPPORTING must be >= 1; got "
                 f"{self.confidence_min_supporting}."
             )
+        # An explicit provider whose key is missing would look configured and
+        # answer extractively forever. Refuse at startup and say which key.
+        chosen = self.generation_provider_setting
+        if chosen:
+            if chosen not in ("gemini", "groq", "none"):
+                raise ValueError(
+                    f"GENERATION_PROVIDER must be 'gemini', 'groq' or 'none'; "
+                    f"got {chosen!r}."
+                )
+            needed = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY"}.get(chosen)
+            if needed and not self.generation_api_key:
+                raise ValueError(
+                    f"GENERATION_PROVIDER={chosen} but {needed} is not set. "
+                    "Set the key, choose the other provider, or unset "
+                    "GENERATION_PROVIDER to pick whichever key is present."
+                )
+
         # A key without a tenant or database does not degrade to local Chroma —
         # it fails at the first query, by which point the service looks up and
         # healthy.  Refuse at startup instead, naming the missing variable.

@@ -169,6 +169,89 @@ def _extractive_answer(question: str, chunks: list[RetrievedChunk]) -> str:
     return "\n".join(lines)
 
 
+# ── Providers ─────────────────────────────────────────────────────────────────
+# Two backends, one prompt, one retry policy, one fallback.  Only the four
+# functions below know which vendor is in use; everything downstream — the
+# abstention gate, answer_source, the response schema — stays vendor-neutral.
+#
+# Each _call_* returns the whole answer; each _stream_* yields fragments.  Both
+# raise on failure, so the shared retry and extractive fallback handle every
+# provider identically.
+
+
+class ProviderUnavailable(RuntimeError):
+    """The provider's SDK is not installed. Distinct from a call that failed."""
+
+
+def _gemini_client():
+    try:
+        from google import genai
+    except ImportError:
+        raise ProviderUnavailable(
+            "google-genai is not installed. Run: pip install -r requirements.txt"
+        )
+    return genai.Client(api_key=cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY"))
+
+
+def _groq_client():
+    try:
+        from groq import Groq
+    except ImportError:
+        raise ProviderUnavailable(
+            "groq is not installed. Run: pip install -r requirements.txt"
+        )
+    return Groq(api_key=cfg.groq_api_key or os.environ.get("GROQ_API_KEY"))
+
+
+def _call_gemini(prompt: str) -> str:
+    response = _gemini_client().models.generate_content(
+        model=cfg.gemini_model, contents=prompt,
+    )
+    return response.text or ""
+
+
+def _stream_gemini(prompt: str):
+    for piece in _gemini_client().models.generate_content_stream(
+        model=cfg.gemini_model, contents=prompt,
+    ):
+        text = getattr(piece, "text", None)
+        if text:
+            yield text
+
+
+def _groq_messages(prompt: str) -> list[dict]:
+    # The prompt already carries its own instructions and the labelled sources,
+    # so it goes in whole as a single user turn rather than being split into a
+    # system message — keeping one prompt string means both providers are
+    # answering from byte-identical instructions.
+    return [{"role": "user", "content": prompt}]
+
+
+def _call_groq(prompt: str) -> str:
+    completion = _groq_client().chat.completions.create(
+        model=cfg.groq_model, messages=_groq_messages(prompt),
+    )
+    return completion.choices[0].message.content or ""
+
+
+def _stream_groq(prompt: str):
+    stream = _groq_client().chat.completions.create(
+        model=cfg.groq_model, messages=_groq_messages(prompt), stream=True,
+    )
+    for chunk in stream:
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        text = getattr(delta, "content", None) if delta else None
+        if text:
+            yield text
+
+
+_CALL = {"gemini": _call_gemini, "groq": _call_groq}
+_STREAM = {"gemini": _stream_gemini, "groq": _stream_groq}
+
+
 # ── Transient-failure retry ───────────────────────────────────────────────────
 # Observed on the demo corpus: a 503 "model is currently experiencing high
 # demand" downgraded a perfectly answerable question to an extractive answer.
@@ -253,14 +336,19 @@ def generation_available() -> bool:
     dependency on the model being up.  A retired model id therefore still reads
     as available here; the generate call logs that one.
     """
-    if not (cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")):
+    provider = cfg.generation_provider
+    if provider not in _CALL or not cfg.generation_api_key:
         return False
     try:
-        from google import genai  # noqa: F401
+        if provider == "gemini":
+            from google import genai  # noqa: F401
+        else:
+            from groq import Groq  # noqa: F401
     except ImportError:
         log.warning(
-            "GEMINI_API_KEY is set but google-genai is not installed; "
-            "answers will fall back to extractive. Run: pip install -r requirements.txt"
+            "%s is selected and its key is set, but its SDK is not installed; "
+            "answers will fall back to extractive. Run: pip install -r "
+            "requirements.txt", provider,
         )
         return False
     return True
@@ -293,32 +381,19 @@ def stream_answer(question: str, chunks: list[RetrievedChunk]):
                        "extractive")
         return
 
-    api_key = cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        log.warning("No generation API key configured; returning extractive answer.")
-        yield "done", (_extractive_answer(question, chunks), "extractive")
-        return
-
-    try:
-        from google import genai
-    except ImportError:
-        log.warning("google-genai is not installed; falling back to extractive.")
+    provider = cfg.generation_provider
+    if provider not in _STREAM or not cfg.generation_api_key:
+        log.warning("No generation provider configured; returning extractive answer.")
         yield "done", (_extractive_answer(question, chunks), "extractive")
         return
 
     prompt = _build_prompt(question, chunks)
-    client = genai.Client(api_key=api_key)
     last_error: Exception | None = None
 
     for attempt in range(_MAX_ATTEMPTS):
         parts: list[str] = []
         try:
-            for piece in client.models.generate_content_stream(
-                model=cfg.gemini_model, contents=prompt,
-            ):
-                text = getattr(piece, "text", None)
-                if not text:
-                    continue          # thinking/usage-only chunks carry no text
+            for text in _STREAM[provider](prompt):
                 parts.append(text)
                 yield "delta", text
 
@@ -328,6 +403,11 @@ def stream_answer(question: str, chunks: list[RetrievedChunk]):
             # A stream that completed without a single character is a failure
             # wearing a success's clothes; treat it as one.
             last_error = RuntimeError("stream produced no text")
+
+        except ProviderUnavailable as e:
+            log.warning("%s; falling back to extractive.", e)
+            yield "done", (_extractive_answer(question, chunks), "extractive")
+            return
 
         except Exception as e:  # noqa: BLE001 — must degrade, never raise
             last_error = e
@@ -373,33 +453,21 @@ def generate_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, s
     if not chunks:
         return "No relevant context was found in the indexed documents.", "extractive"
 
-    api_key = cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")
-
-    if not api_key:
-        log.warning("No generation API key configured; returning extractive answer.")
+    provider = cfg.generation_provider
+    if provider not in _CALL or not cfg.generation_api_key:
+        log.warning("No generation provider configured; returning extractive answer.")
         return _extractive_answer(question, chunks), "extractive"
 
     prompt = _build_prompt(question, chunks)
 
-    try:
-        from google import genai  # google-genai SDK (NOT google-generativeai)
-    except ImportError:
-        log.warning(
-            "google-genai is not installed; falling back to extractive answer. "
-            "Run: pip install -r requirements.txt"
-        )
-        return _extractive_answer(question, chunks), "extractive"
-
-    client = genai.Client(api_key=api_key)
-
     last_error: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            response = client.models.generate_content(
-                model=cfg.gemini_model,
-                contents=prompt,
-            )
-            return response.text, "generated"
+            return _CALL[provider](prompt), "generated"
+
+        except ProviderUnavailable as e:
+            log.warning("%s; falling back to extractive answer.", e)
+            return _extractive_answer(question, chunks), "extractive"
 
         except Exception as e:  # noqa: BLE001 — any failure must degrade, not raise
             last_error = e

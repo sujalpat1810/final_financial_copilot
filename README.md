@@ -1,8 +1,8 @@
 # Financial Research Copilot
 
 An enterprise-grade **Hybrid RAG** system for analyzing annual reports and financial documents.
-Generation backend: **Gemini 3.6 Flash** (via the official `google-genai` SDK).
-Set with `GEMINI_MODEL`; `gemini-2.5-flash` is retired for new API keys.
+Generation backend: **Gemini** or **Groq**, chosen by which API key is set.
+Both are optional — without either, answers are the retrieved passages verbatim.
 
 ---
 
@@ -56,7 +56,7 @@ Set with `GEMINI_MODEL`; `gemini-2.5-flash` is retired for new API keys.
                         │      Top-N Chunks + Citations    │          │
                         │           │                                  │
                         │           ▼                                  │
-                        │      Gemini 3.6 Flash                       │
+                        │      Gemini  or  Groq                       │
                         │      (with page-citation prompt)            │
                         │           │                                  │
                         │           ▼                                  │
@@ -109,7 +109,7 @@ financial_copilot/
 │   ├── retrieval.py      — EmbeddingModel, BM25Index, Reranker, HybridRetriever
 │   ├── confidence.py     — score → confidence label; the abstention decision
 │   ├── entities.py       — refuses questions about companies that aren't indexed
-│   ├── generation.py     — Gemini call, transient retry + extractive fallback
+│   ├── generation.py     — Gemini/Groq call, retry, streaming, extractive fallback
 │   └── main.py           — FastAPI routes + startup lifecycle
 ├── pdf_data/             — source corpus: real annual reports (gitignored)
 ├── scripts/
@@ -157,15 +157,44 @@ pip install -r requirements.txt
 > **First run**: sentence-transformers will download `all-MiniLM-L6-v2` (~80 MB)
 > and the cross-encoder `ms-marco-MiniLM-L-6-v2` (~25 MB) automatically.
 
-### 2. Set your Gemini API key (optional)
+### 2. Set a generation API key (optional)
+
+Two backends are supported. Set a key for either:
 
 ```bash
 cp .env.example .env
-# Edit .env and set GEMINI_API_KEY=your_actual_key
+
+# Google Gemini — https://aistudio.google.com/app/apikey
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.6-flash
+
+# or Groq — https://console.groq.com/keys
+GROQ_API_KEY=...
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
+
+Whichever key is present is used; with both set, Gemini wins unless
+`GENERATION_PROVIDER=groq` says otherwise. Naming a provider whose key is missing
+is refused at startup rather than discovered later as a silently extractive
+answer.
 
 If you skip this step the system works fine — it returns the top retrieved chunks
 directly instead of a generated answer (the "extractive fallback").
+
+**Choosing between them.** Measured on this corpus, `gemini-3.6-flash` produces
+the strongest answers: it separates the consolidated statement from excerpts
+whose basis is undetermined and names the comparative figure for each. It is also
+a *thinking* model — it deliberates for 20–45 s and then emits the whole answer
+at once, so nothing streams. Groq serves open-weight models that begin emitting
+almost immediately, which is what makes `/query/stream` show text as it is
+written. Faster and less thorough, against slower and better qualified.
+
+**Watch the quota.** A free-tier Gemini key is capped at **20 requests per day**
+per model. Once spent, every answer degrades to extractive with no error the user
+can see — `/health` still reports generation as available, because checking would
+cost a request. Quotas are per model, so switching models buys a fresh allowance.
+The retry policy detects a daily quota and stops immediately rather than spending
+two more requests on a window that reopens tomorrow.
 
 ### 3. Ingest the corpus
 
@@ -448,7 +477,7 @@ install commands if it is missing.
 | Reranker | CrossEncoder (sentence-transformers) | Cross-encoders are far more accurate than bi-encoders for final ranking |
 | Orchestration | none — explicit code | The pipeline is embed → search twice → merge → rerank. Short enough to read end to end; a chain abstraction would sit on top of the domain logic that carries the value |
 | Document store | a JSON chunk store | Stores page number, entity, fiscal year, basis and a content hash — financial-statement fields a generic node abstraction would have to be configured into approximating |
-| Generation | Google Gemini 3.6 Flash | Fast, high-quality, long context; supports citation-aware prompting |
+| Generation | Gemini or Groq | Either backend, chosen by which key is set. Gemini qualifies figures more thoroughly; Groq starts emitting immediately, so answers stream |
 | API | FastAPI | Async, automatic OpenAPI docs, native Pydantic integration |
 
 ---
@@ -462,7 +491,8 @@ install commands if it is missing.
 | Vector search (top-10, 500 chunks) | < 5 ms |
 | BM25 search (top-10, 500 chunks) | < 2 ms |
 | Cross-encoder rerank (20 candidates) | 200–600 ms |
-| Gemini 3.6 Flash generation | 2–20 s (thinking model; slower than 2.5 Flash) |
+| Generation — Gemini 3.6 Flash | 11–45 s (a thinking model; emits nothing until it finishes) |
+| Generation — Groq | starts emitting almost immediately, so the answer streams |
 
 Every `/query` response includes `retrieval_latency_ms` and `generation_latency_ms`
 so you can quote real numbers from your own run.
