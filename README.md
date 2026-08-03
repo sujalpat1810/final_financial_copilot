@@ -113,6 +113,8 @@ financial_copilot/
 │   └── main.py           — FastAPI routes + startup lifecycle
 ├── pdf_data/             — source corpus: real annual reports (gitignored)
 ├── scripts/
+│   ├── ingest.py             — bulk-ingest the corpus from a manifest
+│   ├── reindex.py            — repopulate a vector store after switching backend
 │   └── make_basis_fixture.py — regenerates the basis-detection test fixture
 ├── tests/
 │   ├── test_basis_detection.py — standalone/consolidated boundaries vs ground truth
@@ -337,18 +339,52 @@ The frontend. Static files, no build step.
 
 ## Switching Vector Store Backend
 
-Edit `.env`:
+Two steps — the second is not optional:
 
 ```bash
+# 1. choose the backend in .env
 VECTOR_STORE_BACKEND=chroma   # or "faiss" (default)
+
+# 2. populate it
+python -m scripts.reindex
 ```
 
-Both backends implement the same `VectorStore` ABC in `vector_store.py`, so no
-other code changes are needed.
+`scripts.ingest` cannot do step 2. It is idempotent against the content hash in
+`data/chunk_store.json`, so with the documents already recorded it skips all of
+them as `AlreadyIndexed` and leaves the new backend empty — a switch that looks
+like it worked and leaves nothing to retrieve. `scripts.reindex` starts from the
+chunk store instead: no PDF is re-parsed and no chunk boundary moves, only the
+embeddings are recomputed (~100 s for 2,191 chunks on CPU).
 
-**FAISS** — better for: fast prototyping, single-node, in-memory speed.  
-**ChromaDB** — better for: built-in metadata filtering, persistent SQLite storage,
-easier to inspect with the Chroma browser.
+Both backends implement the same `VectorStore` ABC in `vector_store.py`, so no
+application code changes when you switch.
+
+**FAISS** — local, in-memory, ~0.1 ms a search. Best for development and for a
+demo that must not depend on the network.  
+**ChromaDB** — richer metadata filtering; runs either on local disk or against
+**Chroma Cloud**, the managed service.
+
+### Chroma Cloud
+
+Setting `CHROMA_API_KEY` switches the chroma backend from a local on-disk client
+to the managed service. Tenant and database are required alongside it — all three
+are on the Chroma Cloud dashboard:
+
+```bash
+VECTOR_STORE_BACKEND=chroma
+CHROMA_API_KEY=ck-...
+CHROMA_TENANT=...
+CHROMA_DATABASE=...
+```
+
+An API key without a tenant and database is refused at startup rather than at the
+first query, when the service would already look healthy.
+
+Measured on the 2,191-chunk corpus: a Chroma Cloud vector search takes **~493 ms**
+against **~0.1 ms** for local FAISS. That sounds decisive and mostly isn't — the
+cross-encoder reranker costs ~2 s and generation 2–20 s, so the cloud round trip
+is a single-digit percentage of a full query. It is a network dependency, though,
+which is the real reason to prefer FAISS when the network is not yours.
 
 ---
 

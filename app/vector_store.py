@@ -165,6 +165,24 @@ class FAISSVectorStore(VectorStore):
 
 # ── ChromaDB backend ──────────────────────────────────────────────────────────
 
+def _scalar_metadata(metadata: ChunkMetadata) -> dict[str, Any]:
+    """
+    Chunk metadata reduced to what Chroma will accept.
+
+    Chroma stores only str/int/float/bool and rejects None outright, but four
+    fields on ChunkMetadata are legitimately nullable — section_title, entity,
+    fiscal_year and basis.  `basis` is null for every page outside the statement
+    blocks (83+ pages in the demo corpus alone), so passing model_dump() straight
+    through fails on the very first write.
+
+    Dropping the keys is safe rather than lossy: all four default to None on
+    ChunkMetadata, so the absent key is restored as None when search() rebuilds
+    the object.  The alternative — writing a sentinel like "" or "unknown" —
+    would round-trip an undetermined basis into a determined-looking one, which
+    is exactly the confusion app/basis.py exists to prevent.
+    """
+    return {k: v for k, v in metadata.model_dump().items() if v is not None}
+
 class ChromaVectorStore(VectorStore):
     """
     Uses chromadb's persistent client with a custom embedding function that wraps
@@ -175,9 +193,21 @@ class ChromaVectorStore(VectorStore):
     def __init__(self) -> None:
         import chromadb  # lazy import
 
-        persist_dir = cfg.chroma_persist_dir
-        Path(persist_dir).mkdir(parents=True, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=persist_dir)
+        if cfg.chroma_is_cloud:
+            # Managed service.  Selected by the presence of an API key rather
+            # than a separate mode flag, so there is no state where a key is
+            # configured but quietly ignored.  config.validate() has already
+            # refused a key without a tenant and database.
+            self._client = chromadb.CloudClient(
+                api_key=cfg.chroma_api_key,
+                tenant=cfg.chroma_tenant,
+                database=cfg.chroma_database,
+            )
+        else:
+            persist_dir = cfg.chroma_persist_dir
+            Path(persist_dir).mkdir(parents=True, exist_ok=True)
+            self._client = chromadb.PersistentClient(path=persist_dir)
+
         self._collection = self._client.get_or_create_collection(
             name="financial_chunks",
             metadata={"hnsw:space": "cosine"},
@@ -188,7 +218,7 @@ class ChromaVectorStore(VectorStore):
             ids=[c.chunk_id for c in chunks],
             embeddings=embeddings,
             documents=[c.text for c in chunks],
-            metadatas=[c.metadata.model_dump() for c in chunks],
+            metadatas=[_scalar_metadata(c.metadata) for c in chunks],
         )
 
     def search(
