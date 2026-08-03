@@ -46,14 +46,46 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * How long to wait before giving up, per endpoint.
+ *
+ * fetch has no default timeout: a server that accepts the connection and then
+ * never answers leaves the promise pending forever, and the UI sits on its
+ * spinner with no way out but a page reload. Every request therefore carries a
+ * deadline.
+ *
+ * Generous for /query — retrieval plus generation legitimately runs 15-30 s, and
+ * a timeout that fires on a slow-but-working answer is worse than no timeout at
+ * all. Short for /health, which is polled and either answers at once or is down.
+ */
+const TIMEOUT_MS = { '/health': 6000, '/query': 120000, default: 30000 };
+
+function timeoutFor(path) {
+  return TIMEOUT_MS[path] ?? TIMEOUT_MS.default;
+}
+
 async function request(path, options = {}) {
+  const limit = timeoutFor(path);
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, limit);
+
   let response;
   try {
-    response = await fetch(apiUrl(path), options);
+    response = await fetch(apiUrl(path), { ...options, signal: controller.signal });
   } catch (cause) {
+    if (timedOut) {
+      throw new ApiError(
+        `The service did not respond within ${Math.round(limit / 1000)} seconds. `
+        + 'It may still be starting up, or the question may have taken too long.',
+        408,
+      );
+    }
     // fetch only rejects on a transport failure, so this is genuinely "no
     // server", not an error status.
     throw new ApiError('Cannot reach the service. Is it running?', 0);
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!response.ok) {
