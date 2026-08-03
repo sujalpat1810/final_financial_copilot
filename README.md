@@ -181,13 +181,23 @@ answer.
 If you skip this step the system works fine — it returns the top retrieved chunks
 directly instead of a generated answer (the "extractive fallback").
 
-**Choosing between them.** Measured on this corpus, `gemini-3.6-flash` produces
-the strongest answers: it separates the consolidated statement from excerpts
-whose basis is undetermined and names the comparative figure for each. It is also
-a *thinking* model — it deliberates for 20–45 s and then emits the whole answer
-at once, so nothing streams. Groq serves open-weight models that begin emitting
-almost immediately, which is what makes `/query/stream` show text as it is
-written. Faster and less thorough, against slower and better qualified.
+**Choosing between them.** Measured on this corpus, same question, same retrieved
+evidence:
+
+| Model | Time | Answer |
+|---|---|---|
+| `gemini-3.6-flash` | 22–47 s | Separates the consolidated statement from excerpts whose basis is undetermined, names the FY2023-24 comparative for each. ~1,100 chars |
+| `llama-3.3-70b-versatile` (Groq) | **4 s** | Correct figure, correct `[Page N]` citation, no comparative, no basis discussion. ~150 chars |
+| `openai/gpt-oss-120b` (Groq) | 3 s | Richer prose — but cites `Page 69【Source 1】`, which the citation parser does not match, so **no chips render**. Do not use without a prompt change |
+
+Gemini writes the answer this product exists to produce; Groq answers in a tenth
+of the time. Neither streams progressively in practice — Gemini deliberates then
+emits at once, and the Groq answers finish too quickly for it to matter.
+
+The citation format is the constraint worth knowing about. `linkCitations` in the
+frontend rewrites `[Page N]` markers into provenance chips, so a model that
+invents its own citation style produces prose that looks fine and silently loses
+every link to the source PDF.
 
 **Watch the quota.** A free-tier Gemini key is capped at **20 requests per day**
 per model. Once spent, every answer degrades to extractive with no error the user
