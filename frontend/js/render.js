@@ -322,28 +322,40 @@ const STAGES = [
   { at: 25000, text: 'Still writing — a long answer with citations takes a moment…' },
 ];
 
-/** Placeholder shown while a query is in flight. Returns {node, stop}. */
+const workingHtml = (text) => `
+  <div class="working">
+    <span class="spinner" role="status"></span>
+    <span class="working-txt">${escapeHtml(text)}</span>
+    <span class="working-el" aria-hidden="true"></span>
+  </div>`;
+
+/**
+ * Placeholder shown while a query is in flight.
+ *
+ * Returns {node, stop, showEvidence}. showEvidence upgrades the placeholder into
+ * a real card the moment retrieval finishes — see the note on /query/stream in
+ * app/main.py. Retrieval lands in ~2 s and the prose 25-45 s later, so this puts
+ * the confidence, the source list and the page numbers on screen almost at once,
+ * and leaves only the prose pending. The reader can open a cited page while the
+ * answer is still being written.
+ */
 export function renderPending(container, question) {
   const node = document.createElement('div');
   node.className = 'exchange';
-  node.innerHTML = questionHeading(question) + `
-    <article class="card">
-      <div class="working">
-        <span class="spinner" role="status"></span>
-        <span class="working-txt">${STAGES[0].text}</span>
-        <span class="working-el" aria-hidden="true"></span>
-      </div>
-    </article>`;
+  node.innerHTML = questionHeading(question)
+    + `<article class="card">${workingHtml(STAGES[0].text)}</article>`;
   container.appendChild(node);
 
-  const txt = node.querySelector('.working-txt');
-  const elapsed = node.querySelector('.working-el');
   const started = Date.now();
   let stageIndex = 0;
 
-  // One timer for both, so the elapsed counter and the stage text can never
-  // disagree about how long this has been running.
+  // The ticker re-queries the node every tick rather than closing over the two
+  // spans, because showEvidence() replaces the card's innerHTML underneath it.
+  // Holding references would leave it writing into detached elements.
   const timer = setInterval(() => {
+    const txt = node.querySelector('.working-txt');
+    const elapsed = node.querySelector('.working-el');
+    if (!txt) return;
     const ms = Date.now() - started;
     let next = stageIndex;
     while (next + 1 < STAGES.length && ms >= STAGES[next + 1].at) next += 1;
@@ -351,10 +363,31 @@ export function renderPending(container, question) {
       stageIndex = next;
       txt.textContent = STAGES[stageIndex].text;
     }
-    elapsed.textContent = `${(ms / 1000).toFixed(0)}s`;
+    if (elapsed) elapsed.textContent = `${(ms / 1000).toFixed(0)}s`;
   }, 250);
 
-  return { node, stop: () => clearInterval(timer) };
+  function showEvidence(meta, openableDocIds) {
+    const state = confidenceState(meta.confidence);
+    const card = node.querySelector('.card');
+    if (!card) return;
+    // Same header and evidence markup as the finished card, so nothing shifts
+    // when the prose replaces the working line. Only the mode label differs:
+    // "Writing" is honest until answer_source is known.
+    card.innerHTML = `
+      <div class="card-hd">
+        <span class="lbl">Finding</span>
+        <span class="conf ${state.className}" title="${escapeHtml(state.description)}">
+          ${icon(state.icon)} ${escapeHtml(state.label)}
+        </span>
+        <span class="conf-why">${escapeHtml(meta.confidence_reason || '')}</span>
+        <span class="hspacer" style="flex:1"></span>
+        <span class="lbl">Writing</span>
+      </div>
+      <div class="card-bd">${workingHtml(STAGES[stageIndex].text)}</div>
+      ${evidenceSection(meta, openableDocIds)}`;
+  }
+
+  return { node, stop: () => clearInterval(timer), showEvidence };
 }
 
 export function renderError(container, question, message) {

@@ -124,6 +124,93 @@ export function query({ question, docName = null, fiscalYear = null, topN = null
 }
 
 /**
+ * Ask a question and receive the answer in stages.
+ *
+ * EventSource is not used: it is GET-only, and the question belongs in a body
+ * rather than a URL. fetch gives a readable stream over POST, at the cost of
+ * parsing the event framing here.
+ *
+ * Handlers: onMeta (sources and confidence, ~2 s), onDelta (a text fragment),
+ * onAbstained, onDone. Exactly one of onAbstained/onDone fires. Throws ApiError
+ * on transport failure or timeout, so the caller can fall back to api.query.
+ */
+export async function queryStream(
+  { question, docName = null, fiscalYear = null, topN = null },
+  { onMeta, onDelta, onAbstained, onDone } = {},
+) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); },
+    timeoutFor('/query'));
+
+  let response;
+  try {
+    response = await fetch(apiUrl('/query/stream'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question, doc_name: docName, fiscal_year: fiscalYear, top_n: topN,
+      }),
+      signal: controller.signal,
+    });
+  } catch {
+    clearTimeout(timer);
+    throw new ApiError(timedOut
+      ? 'The service did not respond in time.'
+      : 'Cannot reach the service. Is it running?', timedOut ? 408 : 0);
+  }
+
+  if (!response.ok || !response.body) {
+    clearTimeout(timer);
+    throw new ApiError(`${response.status} ${response.statusText}`, response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Events are separated by a blank line. Anything after the last separator
+      // is a partial event and stays in the buffer — a JSON payload split across
+      // two network reads is normal, not an error.
+      const events = buffer.split('\n\n');
+      buffer = events.pop() ?? '';
+
+      for (const raw of events) {
+        let name = 'message';
+        let data = '';
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event: ')) name = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data += line.slice(6);
+        }
+        if (!data) continue;
+
+        let payload;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          continue;   // a malformed frame should not kill a live answer
+        }
+
+        if (name === 'meta') onMeta?.(payload);
+        else if (name === 'delta') onDelta?.(payload.text);
+        else if (name === 'abstained') onAbstained?.(payload);
+        else if (name === 'done') onDone?.(payload);
+        else if (name === 'error') throw new ApiError(payload.message, 500);
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    reader.cancel().catch(() => {});
+  }
+}
+
+/**
  * Upload a PDF.
  *
  * XMLHttpRequest rather than fetch, purely for `upload.onprogress` — fetch has

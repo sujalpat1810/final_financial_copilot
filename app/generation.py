@@ -196,14 +196,42 @@ _TRANSIENT_MARKERS = (
 )
 
 
+# A 429 is usually a per-minute burst and worth retrying. A 429 that names a
+# PER-DAY quota is not: the window is tomorrow, no backoff reaches it, and each
+# retry spends another request from an allowance that is already gone. Observed
+# on a free-tier key capped at 20 requests per day — three attempts turned one
+# exhausted answer into three.
+_EXHAUSTED_MARKERS = (
+    "perday",                    # quotaId: GenerateRequestsPerDayPerProjectPerModel
+    "requests per day",
+    "free_tier_requests",
+    "quota exceeded for metric",
+)
+
+
+def _is_daily_quota(error: Exception) -> bool:
+    """A 429 whose window is a day rather than a minute."""
+    text = str(error).lower().replace(" ", "")
+    return "429" in text and any(
+        m.replace(" ", "") in text for m in _EXHAUSTED_MARKERS
+    )
+
+
 def _is_transient(error: Exception) -> bool:
     """
     Whether retrying could plausibly succeed.
 
     A 404 (retired model) or 401/403 (bad key) is a configuration fault: it will
     fail identically three times and the only effect of retrying is to make the
-    request slower before it degrades.
+    request slower before it degrades.  A daily quota is the same in practice —
+    and worse, retrying spends more of a budget that has already run out.
     """
+    if _is_daily_quota(error):
+        log.error(
+            "Generation quota for the day is exhausted — not retrying. Every "
+            "answer will be extractive until it resets. Check the API plan."
+        )
+        return False
     text = str(error).lower()
     return any(marker in text for marker in _TRANSIENT_MARKERS)
 
@@ -236,6 +264,92 @@ def generation_available() -> bool:
         )
         return False
     return True
+
+
+# ── Streaming ─────────────────────────────────────────────────────────────────
+
+def stream_answer(question: str, chunks: list[RetrievedChunk]):
+    """
+    Yield (kind, payload) as the answer is written.
+
+    kind is "delta" for a fragment of text, or "done" for the terminal event
+    carrying (full_text, answer_source).  Exactly one "done" is yielded, always,
+    including on every failure path — the caller can therefore treat "done" as
+    the single place a response is finalised rather than duplicating fallback
+    handling.
+
+    This is a SYNCHRONOUS generator. The SDK's streaming call is blocking, so the
+    caller must drive it off the event loop (see main.py, iterate_in_threadpool).
+
+    Retry policy differs from generate_answer deliberately. A transient failure
+    is only retried while nothing has been emitted yet: once fragments have
+    reached the reader, restarting would replay text they have already seen, and
+    silently discarding the partial answer to fall back to an extractive one
+    would be worse still.  After first output, a failure ends the stream with
+    what was actually produced.
+    """
+    if not chunks:
+        yield "done", ("No relevant context was found in the indexed documents.",
+                       "extractive")
+        return
+
+    api_key = cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        log.warning("No generation API key configured; returning extractive answer.")
+        yield "done", (_extractive_answer(question, chunks), "extractive")
+        return
+
+    try:
+        from google import genai
+    except ImportError:
+        log.warning("google-genai is not installed; falling back to extractive.")
+        yield "done", (_extractive_answer(question, chunks), "extractive")
+        return
+
+    prompt = _build_prompt(question, chunks)
+    client = genai.Client(api_key=api_key)
+    last_error: Exception | None = None
+
+    for attempt in range(_MAX_ATTEMPTS):
+        parts: list[str] = []
+        try:
+            for piece in client.models.generate_content_stream(
+                model=cfg.gemini_model, contents=prompt,
+            ):
+                text = getattr(piece, "text", None)
+                if not text:
+                    continue          # thinking/usage-only chunks carry no text
+                parts.append(text)
+                yield "delta", text
+
+            if parts:
+                yield "done", ("".join(parts), "generated")
+                return
+            # A stream that completed without a single character is a failure
+            # wearing a success's clothes; treat it as one.
+            last_error = RuntimeError("stream produced no text")
+
+        except Exception as e:  # noqa: BLE001 — must degrade, never raise
+            last_error = e
+            if parts:
+                # Already on screen. Keep it, and say so rather than pretending.
+                log.warning("Stream failed after %d fragments (%s); "
+                            "returning the partial answer.", len(parts), e)
+                yield "done", ("".join(parts), "generated")
+                return
+
+        if attempt + 1 < _MAX_ATTEMPTS and _is_transient(last_error):
+            delay = _BACKOFF_SECONDS * (2 ** attempt)
+            log.warning("Stream attempt %d/%d failed transiently (%s); "
+                        "retrying in %.1fs.",
+                        attempt + 1, _MAX_ATTEMPTS, last_error, delay)
+            time.sleep(delay)
+            continue
+        break
+
+    log.warning("Streaming failed after %d attempt(s) (%s); falling back to "
+                "extractive answer.", _MAX_ATTEMPTS, last_error)
+    yield "done", (_extractive_answer(question, chunks), "extractive")
 
 
 # ── Main generate function ────────────────────────────────────────────────────

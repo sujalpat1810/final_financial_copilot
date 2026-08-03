@@ -230,6 +230,42 @@ def test_transient_classification(message, transient):
     assert generation._is_transient(RuntimeError(message)) is transient
 
 
+# ── A daily quota is not a transient failure ──────────────────────────────────
+
+DAILY_429 = (
+    "429 RESOURCE_EXHAUSTED. Quota exceeded for metric: "
+    "generativelanguage.googleapis.com/generate_content_free_tier_requests, "
+    "limit: 20 ... quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+)
+
+
+def test_daily_quota_is_not_retried():
+    """
+    Observed on a free-tier key capped at 20 requests a day: three attempts spent
+    three of the remaining allowance on a window that only reopens tomorrow. No
+    backoff reaches it, so retrying is pure waste.
+    """
+    assert generation._is_daily_quota(RuntimeError(DAILY_429)) is True
+    assert generation._is_transient(RuntimeError(DAILY_429)) is False
+
+
+def test_per_minute_429_is_still_retried():
+    """The common burst limit must keep its retry — only the daily cap is fatal."""
+    burst = "429 RESOURCE_EXHAUSTED. Please retry in 22s."
+    assert generation._is_daily_quota(RuntimeError(burst)) is False
+    assert generation._is_transient(RuntimeError(burst)) is True
+
+
+def test_exhausted_quota_costs_exactly_one_request(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", "k")
+    calls = _stub_sdk(monkeypatch, [RuntimeError(DAILY_429)])
+
+    _, source = generate_answer("q", [_rc()])
+
+    assert source == "extractive"
+    assert len(calls) == 1, "retried a quota that does not reset until tomorrow"
+
+
 def test_extractive_answer_carries_provenance(monkeypatch):
     """An extractive answer is still figures that must not be read unqualified."""
     monkeypatch.setattr(cfg, "gemini_api_key", None)

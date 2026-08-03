@@ -7,6 +7,7 @@ Run with:
 Endpoints:
   POST /ingest                    — upload a PDF for indexing
   POST /query                     — ask a question with optional metadata filters
+  POST /query/stream              — the same answer, streamed as it is written
   GET  /documents                 — list all ingested documents
   GET  /documents/{doc_id}/file   — serve the original PDF, so a citation can
                                     open the page it came from
@@ -29,6 +30,7 @@ Latency logging:
 from __future__ import annotations
 
 import io
+import json
 import re
 import time
 import logging
@@ -40,18 +42,20 @@ try:
 except ImportError:
     pass
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import iterate_in_threadpool
 
 from app.config import cfg
-from app.confidence import assess, relevance
+from app.confidence import Assessment, assess, relevance
 from app.entities import foreign_entities
-from app.generation import generate_answer, generation_available
+from app.generation import generate_answer, generation_available, stream_answer
 from app.ingestion import (
     AlreadyIndexed,
     ContentConflict,
@@ -257,6 +261,58 @@ def _to_citations(results) -> list[SourceCitation]:
     return citations
 
 
+@dataclass
+class _Prepared:
+    """Everything both /query and /query/stream need before generating."""
+    results: list
+    assessment: Assessment
+    retrieval_ms: float
+    documents_searched: int
+    chunks_searched: int
+
+
+async def _prepare(req: QueryRequest) -> _Prepared:
+    """
+    Search, then decide whether an answer is allowed to exist.
+
+    Shared by both query endpoints on purpose. This is where the abstention
+    decision lives, and two copies of it would eventually disagree — the
+    streaming path silently answering something the blocking path refuses is
+    exactly the divergence this product cannot afford.
+    """
+    retriever: HybridRetriever = _state["retriever"]
+    vs = _state.get("vs")
+
+    docs = list_documents()
+    chunks_searched = vs.get_chunk_count() if vs else 0
+    documents_searched = len(docs)
+
+    # Which companies the index actually covers, read per request rather than
+    # cached: ingesting a new entity must stop the gate below firing on it
+    # without a restart.
+    indexed_entities = sorted({d.entity for d in docs if d.entity})
+    foreign = foreign_entities(req.question, set(indexed_entities))
+
+    t0 = time.perf_counter()
+    results = await run_in_threadpool(
+        retriever.retrieve,
+        query=req.question,
+        top_n=req.top_n,
+        filter_doc_name=req.doc_name,
+        filter_fiscal_year=req.fiscal_year,
+        filter_section_type=req.section_type,
+    )
+    retrieval_ms = (time.perf_counter() - t0) * 1000
+
+    assessment = assess(
+        [r.rerank_score for r in results],
+        foreign_entities=foreign,
+        indexed_entities=indexed_entities,
+    )
+    return _Prepared(results, assessment, retrieval_ms,
+                     documents_searched, chunks_searched)
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest):
     """Run hybrid retrieval + reranking, then generate — unless evidence is too thin."""
@@ -353,6 +409,120 @@ async def query(req: QueryRequest):
         abstained=False,
         documents_searched=documents_searched,
         chunks_searched=chunks_searched,
+    )
+
+
+# ── POST /query/stream ────────────────────────────────────────────────────────
+
+def _sse(event: str, data: dict) -> str:
+    """One server-sent event. json.dumps handles the newlines that would break it."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.post("/query/stream")
+async def query_stream(req: QueryRequest):
+    """
+    The same answer as /query, delivered as it is written.
+
+    Why this exists alongside /query rather than replacing it
+    ─────────────────────────────────────────────────────────
+    Generation measures 11-45 s on this corpus, and none of it is visible until
+    the whole JSON object is ready. That wait is the single worst thing about
+    using the tool: a reader cannot distinguish a careful answer from a hung one.
+
+    /query keeps its contract — one object, fully formed — because it is what the
+    tests, the docs and any programmatic caller rely on. Both routes share
+    _prepare(), so retrieval and the abstention decision cannot drift apart.
+
+    Event sequence
+    ──────────────
+      meta      sources, confidence and scope, sent the moment retrieval ends.
+                The evidence list and the confidence pill can therefore render
+                in ~2 s, while the prose is still being written — most of the
+                perceived improvement comes from this event, not the deltas.
+      delta     a fragment of answer text.
+      done      the complete text, answer_source and final timings.
+      abstained no answer exists; nothing was generated. Terminal.
+      error     something failed before any text was produced. Terminal.
+
+    Exactly one terminal event is sent on every path.
+
+    Citations are NOT rewritten into chips here. "[Page 30]" can be split across
+    two fragments, and a half-written marker rewritten mid-stream would render as
+    a broken citation and then be replaced — so the client streams plain text and
+    re-renders once on `done`.
+    """
+    prep = await _prepare(req)
+    citations = _to_citations(prep.results)
+
+    async def events():
+        if prep.assessment.abstained:
+            log.info("query='%s' ABSTAINED retrieval=%.0fms (%s)",
+                     req.question[:60], prep.retrieval_ms, prep.assessment.reason)
+            yield _sse("abstained", {
+                "question": req.question,
+                "sources": [c.model_dump() for c in citations],
+                "confidence": prep.assessment.level.value,
+                "confidence_reason": prep.assessment.reason,
+                "abstention_reason": prep.assessment.abstention_reason,
+                "retrieval_latency_ms": round(prep.retrieval_ms, 1),
+                "documents_searched": prep.documents_searched,
+                "chunks_searched": prep.chunks_searched,
+            })
+            return
+
+        yield _sse("meta", {
+            "question": req.question,
+            "sources": [c.model_dump() for c in citations],
+            "confidence": prep.assessment.level.value,
+            "confidence_reason": prep.assessment.reason,
+            "retrieval_latency_ms": round(prep.retrieval_ms, 1),
+            "documents_searched": prep.documents_searched,
+            "chunks_searched": prep.chunks_searched,
+        })
+
+        t1 = time.perf_counter()
+        answer, answer_source = "", "extractive"
+        try:
+            # The SDK's streaming call is blocking, so it is driven from a worker
+            # thread; iterate_in_threadpool hands each yielded item back to the
+            # event loop without the generator ever running on it.
+            async for kind, payload in iterate_in_threadpool(
+                stream_answer(req.question, prep.results)
+            ):
+                if kind == "delta":
+                    yield _sse("delta", {"text": payload})
+                else:
+                    answer, answer_source = payload
+        except Exception as e:  # noqa: BLE001 — a broken stream must still close
+            log.warning("Streaming query failed (%s).", e)
+            yield _sse("error", {
+                "message": "The answer could not be completed. Please try again.",
+            })
+            return
+
+        generation_ms = (time.perf_counter() - t1) * 1000
+        log.info("query='%s' STREAM retrieval=%.0fms generation=%.0fms source=%s "
+                 "confidence=%s", req.question[:60], prep.retrieval_ms,
+                 generation_ms, answer_source, prep.assessment.level.value)
+
+        yield _sse("done", {
+            "answer": answer,
+            "answer_source": answer_source,
+            "generation_latency_ms": round(generation_ms, 1),
+            "total_latency_ms": round(prep.retrieval_ms + generation_ms, 1),
+        })
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Without this an intervening proxy may buffer the whole response and
+            # deliver it at once, which is the exact behaviour this route exists
+            # to avoid.
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
