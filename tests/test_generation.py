@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main
+from app import generation, main
 from app.config import cfg
 from app.generation import _build_prompt, _source_label, generate_answer
 from app.models import Chunk, ChunkMetadata, RetrievedChunk
@@ -115,13 +115,48 @@ def test_no_key_yields_extractive(monkeypatch):
     assert answer
 
 
+def _stub_sdk(monkeypatch, side_effects):
+    """
+    Replace google.genai.Client with one that replays `side_effects` per call.
+
+    An entry that is an Exception is raised, anything else is returned as the
+    response text.  Returns the call log so a test can assert how many attempts
+    were made.
+
+    Stubbed rather than left to fail naturally: google-genai IS installed now, so
+    an unstubbed call would hit the network, burn quota, and — since transient
+    failures retry — do it three times with backoff.
+    """
+    from google import genai
+
+    calls = []
+
+    class _Models:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            effect = side_effects[min(len(calls) - 1, len(side_effects) - 1)]
+            if isinstance(effect, Exception):
+                raise effect
+            return type("R", (), {"text": effect})()
+
+    class _Client:
+        def __init__(self, **_kwargs):
+            self.models = _Models()
+
+    monkeypatch.setattr(genai, "Client", _Client)
+    # Keep the suite fast: the backoff is real time, and correctness here is
+    # about the number of attempts, not the length of the pauses.
+    monkeypatch.setattr(generation, "_BACKOFF_SECONDS", 0.0)
+    return calls
+
+
 def test_generation_failure_falls_back_without_leaking_the_error(monkeypatch):
     """
     The exception can carry the model name and account details. It belongs in the
-    log, not in the answer the user reads. google.genai is not installed here, so
-    the import failure exercises the real except branch.
+    log, not in the answer the user reads.
     """
     monkeypatch.setattr(cfg, "gemini_api_key", "sk-not-a-real-key")
+    _stub_sdk(monkeypatch, [RuntimeError("404 model gemini-x not found for project acme")])
 
     answer, source = generate_answer("q", [_rc()])
 
@@ -129,6 +164,70 @@ def test_generation_failure_falls_back_without_leaking_the_error(monkeypatch):
     lowered = answer.lower()
     for word in VENDOR_WORDS:
         assert word not in lowered, f"{word!r} leaked into the answer"
+    assert "acme" not in lowered and "404" not in answer
+
+
+# ── Transient failures retry; permanent ones do not ───────────────────────────
+
+def test_transient_failure_is_retried_and_can_succeed(monkeypatch):
+    """
+    A 503 "high demand" blip cost a real answer during verification. The fallback
+    was correct, but the reader cannot tell that degraded answer apart from one
+    where the evidence was genuinely thin — so a blip should not produce one.
+    """
+    monkeypatch.setattr(cfg, "gemini_api_key", "k")
+    calls = _stub_sdk(monkeypatch, [
+        RuntimeError("503 UNAVAILABLE. model is currently experiencing high demand"),
+        "the generated answer",
+    ])
+
+    answer, source = generate_answer("q", [_rc()])
+
+    assert source == "generated"
+    assert answer == "the generated answer"
+    assert len(calls) == 2
+
+
+def test_transient_failure_gives_up_after_the_attempt_budget(monkeypatch):
+    monkeypatch.setattr(cfg, "gemini_api_key", "k")
+    calls = _stub_sdk(monkeypatch, [RuntimeError("503 UNAVAILABLE")])
+
+    _, source = generate_answer("q", [_rc()])
+
+    assert source == "extractive"
+    assert len(calls) == generation._MAX_ATTEMPTS
+
+
+@pytest.mark.parametrize("message", [
+    "404 NOT_FOUND. model is no longer available to new users",
+    "401 UNAUTHENTICATED. API key not valid",
+    "403 PERMISSION_DENIED",
+    "400 INVALID_ARGUMENT",
+])
+def test_permanent_failure_is_not_retried(monkeypatch, message):
+    """
+    A retired model or a bad key fails identically three times. Retrying only
+    adds latency to a failure that was never going to succeed.
+    """
+    monkeypatch.setattr(cfg, "gemini_api_key", "k")
+    calls = _stub_sdk(monkeypatch, [RuntimeError(message)])
+
+    _, source = generate_answer("q", [_rc()])
+
+    assert source == "extractive"
+    assert len(calls) == 1, f"retried a permanent error: {message}"
+
+
+@pytest.mark.parametrize("message,transient", [
+    ("503 UNAVAILABLE", True),
+    ("429 RESOURCE_EXHAUSTED", True),
+    ("500 internal error", True),
+    ("504 DEADLINE_EXCEEDED", True),
+    ("404 NOT_FOUND", False),
+    ("401 UNAUTHENTICATED", False),
+])
+def test_transient_classification(message, transient):
+    assert generation._is_transient(RuntimeError(message)) is transient
 
 
 def test_extractive_answer_carries_provenance(monkeypatch):

@@ -44,6 +44,7 @@ from __future__ import annotations
 import logging
 import os
 import textwrap
+import time
 from typing import Any
 
 from app.config import cfg
@@ -168,6 +169,75 @@ def _extractive_answer(question: str, chunks: list[RetrievedChunk]) -> str:
     return "\n".join(lines)
 
 
+# ── Transient-failure retry ───────────────────────────────────────────────────
+# Observed on the demo corpus: a 503 "model is currently experiencing high
+# demand" downgraded a perfectly answerable question to an extractive answer.
+# The fallback is correct behaviour, but spending it on a blip that clears in a
+# second is a waste — and the reader cannot tell that degraded answer apart from
+# one where the evidence was genuinely thin.
+#
+# Deliberately small: three attempts at 1s and 2s adds at most 3s to the worst
+# case, against a generation call that already runs 2-20s.  Retrying a
+# non-transient error (bad key, retired model) would just add latency to a
+# failure that is never going to succeed, so those break out immediately.
+_MAX_ATTEMPTS = 3
+_BACKOFF_SECONDS = 1.0
+
+# Matched on the status code in the exception text rather than on SDK exception
+# classes: google-genai raises ClientError/ServerError with the code embedded,
+# and pinning to those class names would break silently on an SDK refactor.
+_TRANSIENT_MARKERS = (
+    "429",              # rate limited
+    "500", "502", "503", "504",
+    "resource_exhausted",
+    "unavailable",
+    "deadline_exceeded",
+    "internal error",
+)
+
+
+def _is_transient(error: Exception) -> bool:
+    """
+    Whether retrying could plausibly succeed.
+
+    A 404 (retired model) or 401/403 (bad key) is a configuration fault: it will
+    fail identically three times and the only effect of retrying is to make the
+    request slower before it degrades.
+    """
+    text = str(error).lower()
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
+
+
+# ── Capability check ──────────────────────────────────────────────────────────
+
+def generation_available() -> bool:
+    """
+    Whether a generated (not extractive) answer is actually reachable.
+
+    A configured key is necessary but not sufficient: generate_answer imports the
+    SDK lazily inside its try/except, so a missing google-genai install degrades
+    every answer to extractive while /health — if it only checked the key — kept
+    reporting generation as available.  That combination is the worst one to
+    debug, because the symptom is quiet and the status endpoint denies it.
+
+    This deliberately does NOT make a network call.  /health is polled, and a
+    live probe per poll would burn quota and turn a status check into a
+    dependency on the model being up.  A retired model id therefore still reads
+    as available here; the generate call logs that one.
+    """
+    if not (cfg.gemini_api_key or os.environ.get("GEMINI_API_KEY")):
+        return False
+    try:
+        from google import genai  # noqa: F401
+    except ImportError:
+        log.warning(
+            "GEMINI_API_KEY is set but google-genai is not installed; "
+            "answers will fall back to extractive. Run: pip install -r requirements.txt"
+        )
+        return False
+    return True
+
+
 # ── Main generate function ────────────────────────────────────────────────────
 
 def generate_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, str]:
@@ -199,16 +269,40 @@ def generate_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, s
 
     try:
         from google import genai  # google-genai SDK (NOT google-generativeai)
-
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=cfg.gemini_model,
-            contents=prompt,
+    except ImportError:
+        log.warning(
+            "google-genai is not installed; falling back to extractive answer. "
+            "Run: pip install -r requirements.txt"
         )
-        return response.text, "generated"
-
-    except Exception as e:
-        # The exception can carry the model name and account details, so it goes to
-        # the log, not into the answer the user reads.
-        log.warning("Generation call failed (%s); falling back to extractive answer.", e)
         return _extractive_answer(question, chunks), "extractive"
+
+    client = genai.Client(api_key=api_key)
+
+    last_error: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            response = client.models.generate_content(
+                model=cfg.gemini_model,
+                contents=prompt,
+            )
+            return response.text, "generated"
+
+        except Exception as e:  # noqa: BLE001 — any failure must degrade, not raise
+            last_error = e
+            if attempt + 1 < _MAX_ATTEMPTS and _is_transient(e):
+                delay = _BACKOFF_SECONDS * (2 ** attempt)
+                log.warning(
+                    "Generation attempt %d/%d failed transiently (%s); retrying in %.1fs.",
+                    attempt + 1, _MAX_ATTEMPTS, e, delay,
+                )
+                time.sleep(delay)
+                continue
+            break
+
+    # The exception can carry the model name and account details, so it goes to
+    # the log, not into the answer the user reads.
+    log.warning(
+        "Generation failed after %d attempt(s) (%s); falling back to extractive answer.",
+        _MAX_ATTEMPTS, last_error,
+    )
+    return _extractive_answer(question, chunks), "extractive"

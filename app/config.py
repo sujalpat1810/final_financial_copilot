@@ -62,8 +62,19 @@ class Config:
     chunk_overlap_sentences: int = int(os.getenv("CHUNK_OVERLAP_SENTENCES", "1"))
 
     # ── Generation ───────────────────────────────────────────────────────────
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
+    # gemini-2.5-flash is retired for new API keys: it is still returned by
+    # models.list() but generate_content answers 404 "no longer available to new
+    # users".  generate_answer catches that and falls back to extractive, so a
+    # stale default here costs every generated answer without raising anything.
+    gemini_model: str = field(
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    )
+    # default_factory for the same reason as the thresholds below: a bare
+    # os.getenv() default is evaluated at import, so it would miss a key that
+    # load_dotenv() puts in the environment after this module is first imported.
+    gemini_api_key: str | None = field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY")
+    )
 
     # ── Confidence + abstention thresholds ────────────────────────────────────
     # These are RAW CROSS-ENCODER LOGITS, not probabilities.  The reranker
