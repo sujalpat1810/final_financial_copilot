@@ -1,7 +1,9 @@
 """
 Pydantic schemas for API requests and responses.
-Using LangChain-style naming conventions for chunk metadata so these objects
-can be handed directly to LangChain Document wrappers if needed.
+
+Chunk metadata uses conventional field names (text, metadata, page_number) that
+line up with what most retrieval tooling expects, so a Chunk is easy to adapt to
+another library's document type.  Nothing here depends on one.
 """
 
 from __future__ import annotations

@@ -446,8 +446,8 @@ install commands if it is missing.
 | Vector store | FAISS / ChromaDB | FAISS for speed; Chroma for richer metadata queries — both behind one interface |
 | Keyword search | rank-bm25 | Lightweight pure-Python BM25Okapi; no server, no index format lock-in |
 | Reranker | CrossEncoder (sentence-transformers) | Cross-encoders are far more accurate than bi-encoders for final ranking |
-| Orchestration | LangChain | EmbeddingModel implements LangChain's Embeddings interface for composability |
-| Document store | LlamaIndex | Page-level node abstraction with metadata; used for the chunk store design |
+| Orchestration | none — explicit code | The pipeline is embed → search twice → merge → rerank. Short enough to read end to end; a chain abstraction would sit on top of the domain logic that carries the value |
+| Document store | a JSON chunk store | Stores page number, entity, fiscal year, basis and a content hash — financial-statement fields a generic node abstraction would have to be configured into approximating |
 | Generation | Google Gemini 3.6 Flash | Fast, high-quality, long context; supports citation-aware prompting |
 | API | FastAPI | Async, automatic OpenAPI docs, native Pydantic integration |
 

@@ -26,12 +26,20 @@ chromadb>=0.5.0
 # ── BM25 keyword retrieval ────────────────────────────────────────────────────
 rank-bm25>=0.2.2
 
-# ── LLM orchestration ─────────────────────────────────────────────────────────
-langchain>=0.2.0
-langchain-core>=0.2.0
-llama-index-core>=0.10.0     # LlamaIndex document store / node abstractions
+# ── No orchestration framework ────────────────────────────────────────────────
+# langchain, langchain-core and llama-index-core were listed here and imported
+# nowhere.  Removed rather than adopted: the pipeline is a handful of explicit
+# steps in retrieval.py and generation.py, and the parts that carry the product's
+# value — basis detection, the unindexed-company gate, provenance folded into the
+# indexed text, the abstention decision — are not things either framework models.
+# Wrapping them in a chain would add an abstraction layer over the specific logic
+# that is the point.
+#
+# EmbeddingModel does implement embed_documents/embed_query, so it duck-types
+# into a LangChain chain if one is ever wanted. That costs nothing and needs no
+# dependency.
 
-# ── Generation backend — Gemini 2.5 Flash ────────────────────────────────────
+# ── Generation backend ───────────────────────────────────────────────────────
 # IMPORTANT: use google-genai (current SDK), NOT google-generativeai (deprecated)
 google-genai>=1.0.0
 
