@@ -115,6 +115,7 @@ financial_copilot/
 ├── scripts/
 │   ├── ingest.py             — bulk-ingest the corpus from a manifest
 │   ├── reindex.py            — repopulate a vector store after switching backend
+│   ├── smoke_ui.py           — drives the real frontend in a browser, pre-demo
 │   └── make_basis_fixture.py — regenerates the basis-detection test fixture
 ├── tests/
 │   ├── test_basis_detection.py — standalone/consolidated boundaries vs ground truth
@@ -399,6 +400,40 @@ The tests cover:
 - Metadata extraction: fiscal year detection, section heading detection
 - BM25 index: build, search, filter by doc/year, incremental add
 - Merge/dedup logic: hybrid result fusion, source tagging
+- Confidence boundaries, and the unindexed-company gate in both directions
+- Chroma metadata coercion and cloud-vs-local client selection
+
+### Browser smoke test
+
+`pytest` stubs both sides of the network: it checks the API contract and the JS
+modules, but nothing exercises a browser actually talking to a running server.
+Every failure that has mattered in practice lived in that gap — a citation that
+renders but does not open, a spinner that never clears, a module that 404s so the
+page loads blank and healthy-looking.
+
+`scripts/smoke_ui.py` drives the real frontend in headless Chromium and asks the
+only question worth asking before a demo: type a question into the box, does a
+cited answer appear on screen?
+
+```bash
+pip install playwright && python -m playwright install chromium
+
+uvicorn app.main:app --port 8000          # one terminal
+python -m scripts.smoke_ui                 # another
+python -m scripts.smoke_ui --shots out/    # ... and keep screenshots
+```
+
+Sixteen checks: the page boots and lists the corpus, an answerable question
+returns a non-abstained answer with citations and evidence, an unindexed company
+is refused by name, the refusal is measurably faster than an answer (proving
+generation was skipped rather than run and discarded), a citation opens its PDF
+page, and the console stays clean. Exit code is 0 only if all of them pass, so it
+can gate a demo or a deploy.
+
+It is deliberately **not** part of `pytest` — it needs a live server, the models
+loaded, network egress and an API key, none of which belong in a unit-test run.
+Playwright is likewise not in `requirements.txt`; the script prints the two
+install commands if it is missing.
 
 ---
 
