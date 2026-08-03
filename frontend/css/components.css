@@ -395,6 +395,21 @@
   animation:spin .7s linear infinite;
 }
 @keyframes spin{to{transform:rotate(360deg)}}
+/* The stage line changes three times across a 15-45s wait. Fixing a minimum
+   width stops each change nudging the elapsed counter sideways, which reads as
+   flicker on a projector. */
+.working-txt{flex:1 1 auto}
+.working-el{
+  flex:none;font-family:var(--mono);font-size:var(--t-meta);
+  color:var(--ink-3);font-variant-numeric:tabular-nums;
+  min-width:3ch;text-align:right;
+}
+/* A spinner that never stops is the one animation worth keeping when the reader
+   has asked for less motion - it is the only signal the request is still alive -
+   but slow it right down. */
+@media (prefers-reduced-motion:reduce){
+  .spinner{animation-duration:2.4s}
+}
 
 /* ── Toasts ── */
 .toasts{

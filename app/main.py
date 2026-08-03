@@ -105,6 +105,19 @@ async def lifespan(app: FastAPI):
         reranker=_state["reranker"],
     )
 
+    # One throwaway retrieval before serving. Both models lazily initialise on
+    # their first real call — measured at roughly an extra 100 ms on the embedder
+    # and rather more on the cross-encoder — so without this the first question
+    # anyone asks is also the slowest one they will see. It costs a couple of
+    # seconds of startup that nobody is watching, to remove them from a moment
+    # somebody is.
+    if existing_chunks:
+        try:
+            _state["retriever"].retrieve(query="revenue for the year", top_n=1)
+            log.info("Warmed the retrieval path.")
+        except Exception as e:  # noqa: BLE001 — a cold first query beats no service
+            log.warning("Warmup retrieval failed (%s); serving anyway.", e)
+
     log.info("Financial Copilot ready.")
     yield
     _state.clear()
@@ -261,8 +274,14 @@ async def query(req: QueryRequest):
     foreign = foreign_entities(req.question, set(indexed_entities))
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
+    # run_in_threadpool, as /ingest already does: retrieve() is ~2 s of CPU-bound
+    # cross-encoder inference. Left on the event loop it blocks every other
+    # request for its whole duration — a second question, /documents, and the PDF
+    # a citation just tried to open all queue behind it, so one person asking a
+    # question freezes the page for everyone else.
     t0 = time.perf_counter()
-    results = retriever.retrieve(
+    results = await run_in_threadpool(
+        retriever.retrieve,
         query=req.question,
         top_n=req.top_n,
         filter_doc_name=req.doc_name,
@@ -307,8 +326,12 @@ async def query(req: QueryRequest):
         )
 
     # ── Generation ────────────────────────────────────────────────────────────
+    # Also off the event loop: this is a blocking HTTPS round trip of 2-20 s,
+    # plus up to 3 s of time.sleep() if a transient failure is retried.
     t1 = time.perf_counter()
-    answer, answer_source = generate_answer(req.question, results)
+    answer, answer_source = await run_in_threadpool(
+        generate_answer, req.question, results,
+    )
     generation_ms = (time.perf_counter() - t1) * 1000
 
     log.info(

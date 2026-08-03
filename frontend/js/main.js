@@ -31,16 +31,52 @@ async function refreshHealth() {
   const text = el('healthText');
   try {
     const h = await api.health();
+    const recovered = !state.health;
     dot.className = 'dot ok';
     text.textContent = 'Service ready';
     // The model name is deliberately not shown here. It lives in the About
     // panel; a client should not read a third-party vendor in the chrome.
     state.health = h;
     el('statChunks').textContent = formatCount(h.documents_indexed);
+    // The corpus list is fetched once at boot. If that happened while the
+    // service was still starting, it came back empty and never retried.
+    if (recovered) refreshDocuments().catch(() => {});
+    return true;
   } catch (e) {
+    state.health = null;
     dot.className = 'dot bad';
-    text.textContent = e.status === 0 ? 'Service unreachable' : 'Service error';
+    text.textContent = e.status === 0 ? 'Starting up…' : 'Service error';
+    return false;
   }
+}
+
+/**
+ * Keep asking until the service answers, then keep an eye on it.
+ *
+ * Health used to be fetched exactly once, at page load. Loading the app during
+ * the ~34 s model warm-up therefore pinned "Service unreachable" in the header
+ * for the rest of the session, with no retry and no button — the page looked
+ * broken while the service behind it came up perfectly.
+ *
+ * Fast retries while it is down so a demo recovers on its own; slow polling once
+ * it is up, purely to notice if it goes away.
+ */
+function watchHealth() {
+  const DOWN_MS = 2000;
+  const UP_MS = 30000;
+  let timer = null;
+
+  const tick = async () => {
+    const ok = await refreshHealth();
+    clearTimeout(timer);
+    timer = setTimeout(tick, ok ? UP_MS : DOWN_MS);
+  };
+  tick();
+
+  // No point polling a hidden tab; re-check the moment it comes back.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) tick();
+  });
 }
 
 // ── Documents ─────────────────────────────────────────────────────────────────
@@ -131,8 +167,13 @@ const SEEDS = [
   { q: 'Who audited Infosys and was the opinion unqualified?' },
   { q: 'What contingent liabilities are disclosed?' },
   { q: 'List related party transactions' },
-  { q: 'What was revenue?', trap: 'Unqualified on purpose — must not pick one silently' },
-  { q: "What was Wipro's revenue in FY2025?", trap: 'Outside the corpus — must abstain' },
+  // The two below are marked so they read as deliberate rather than careless.
+  // Their tooltips describe the question from the reader's side — the earlier
+  // wording ("must not pick one silently", "must abstain") was a note to
+  // ourselves about expected behaviour, and read as backstage crib notes to
+  // anyone hovering them in front of a client.
+  { q: 'What was revenue?', trap: 'Ambiguous on purpose — no company, year or basis given' },
+  { q: "What was Wipro's revenue in FY2025?", trap: 'A company outside the indexed corpus' },
 ];
 
 function renderSeeds() {
@@ -195,7 +236,10 @@ async function submitQuery() {
   hideWelcome();
 
   const stream = el('streamInner');
-  const pending = renderPending(stream, question);
+  // renderPending drives a stage/elapsed ticker, so it hands back a stop() that
+  // must run on every exit path — an interval left running after the card is
+  // removed keeps firing against detached nodes for the life of the page.
+  const { node: pending, stop: stopPending } = renderPending(stream, question);
   scrollToLatest();
 
   // Clear immediately: the question is already on screen as a heading, so
@@ -208,15 +252,18 @@ async function submitQuery() {
       question,
       docName: state.docFilter,
     });
+    stopPending();
     pending.remove();
     for (const source of response.sources) {
       if (source.chunk_id) state.sourcesByChunkId.set(source.chunk_id, source);
     }
     renderResponse(stream, response, { openableDocIds: openableDocIds() });
   } catch (e) {
+    stopPending();
     pending.remove();
     renderError(stream, question, e.message);
   } finally {
+    stopPending();          // belt and braces: never leave the ticker running
     state.busy = false;
     updateAskEnabled();
     scrollToLatest();
@@ -340,12 +387,23 @@ function initAbout() {
       toast('Service details unavailable.', 'error');
       return;
     }
-    // The one place the backend stack is named — for debugging, not for clients.
+    // Model names go to the console, not the screen. This button used to print
+    // the embedding, reranker and vector-store names into a toast — the one
+    // place the app named its stack, and one mis-click away from projecting
+    // third-party vendors to a room the rest of the UI works to keep them from.
+    // The debugging value is preserved; only the audience changed.
     toast(
-      `Embedding: ${h.embedding_model} · Reranker: ${h.reranker_model} · `
-      + `Store: ${h.vector_store_backend} · Generation: `
-      + `${h.generation_available ? 'available' : 'unavailable (extractive only)'}`,
+      `${formatCount(state.documents.size)} documents · `
+      + `${formatCount(h.documents_indexed)} passages indexed · `
+      + `answers ${h.generation_available ? 'are written from the evidence'
+        : 'are quoted verbatim (generation unavailable)'}`,
     );
+    console.info('[service]', {
+      embedding: h.embedding_model,
+      reranker: h.reranker_model,
+      store: h.vector_store_backend,
+      generation: h.generation_available,
+    });
   });
 }
 
@@ -375,7 +433,9 @@ function init() {
   initUpload();
   initAbout();
   initCitations();
-  refreshHealth();
+  // watchHealth polls until the service answers, so opening the page mid-startup
+  // recovers on its own instead of showing a stuck error.
+  watchHealth();
   refreshDocuments();
 }
 

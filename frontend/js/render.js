@@ -301,19 +301,60 @@ export function renderResponse(container, response, { openableDocIds } = {}) {
   return node;
 }
 
-/** Placeholder shown while a query is in flight. */
+/**
+ * What the reader is told while a query runs, and when.
+ *
+ * A full answer takes 15-45 seconds, nearly all of it the model composing prose.
+ * There is no streaming — the response is one JSON object the page awaits whole —
+ * so the honest options are an unexplained spinner or a narration of the work
+ * actually happening. The first reads as a hang; a reader who cannot tell a slow
+ * answer from a broken one assumes broken.
+ *
+ * The thresholds below track the real pipeline: retrieval measures ~2 s, so the
+ * search line is true while it is shown, and the handover to "writing" is roughly
+ * when generation actually starts. The last line exists because past ~25 s the
+ * reader's question stops being "what is it doing" and becomes "is it stuck".
+ */
+const STAGES = [
+  { at: 0, text: 'Searching every indexed page…' },
+  { at: 2200, text: 'Ranking the passages that matched…' },
+  { at: 4500, text: 'Reading the evidence and writing the answer…' },
+  { at: 25000, text: 'Still writing — a long answer with citations takes a moment…' },
+];
+
+/** Placeholder shown while a query is in flight. Returns {node, stop}. */
 export function renderPending(container, question) {
   const node = document.createElement('div');
   node.className = 'exchange';
   node.innerHTML = questionHeading(question) + `
     <article class="card">
       <div class="working">
-        <span class="spinner" role="status" aria-label="Searching"></span>
-        Searching the indexed documents…
+        <span class="spinner" role="status"></span>
+        <span class="working-txt">${STAGES[0].text}</span>
+        <span class="working-el" aria-hidden="true"></span>
       </div>
     </article>`;
   container.appendChild(node);
-  return node;
+
+  const txt = node.querySelector('.working-txt');
+  const elapsed = node.querySelector('.working-el');
+  const started = Date.now();
+  let stageIndex = 0;
+
+  // One timer for both, so the elapsed counter and the stage text can never
+  // disagree about how long this has been running.
+  const timer = setInterval(() => {
+    const ms = Date.now() - started;
+    let next = stageIndex;
+    while (next + 1 < STAGES.length && ms >= STAGES[next + 1].at) next += 1;
+    if (next !== stageIndex) {
+      stageIndex = next;
+      txt.textContent = STAGES[stageIndex].text;
+    }
+    elapsed.textContent = `${(ms / 1000).toFixed(0)}s`;
+  }, 250);
+
+  return { node, stop: () => clearInterval(timer) };
 }
 
 export function renderError(container, question, message) {
