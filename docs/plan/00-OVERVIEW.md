@@ -53,8 +53,8 @@ CA (browser) — vanilla-JS SPA, tabs: Ask / Reconcile / Notices
 | 06 | `06-recon-ui.md` | `feat/recon-ui` | 04, 05 | **done** |
 | 07 | `07-casework.md` | `feat/casework` | 03, 04 | **done** |
 | 08 | `08-dual-act.md` | `feat/dual-act` | 03, 04 | **done** |
-| 09 | `09-demo-hardening.md` | `feat/demo-hardening` | 06, 07, 08 | pending |
-| 10 | `10-blueprint-docs.md` | `feat/blueprint-docs` | — (docs only) | pending |
+| 09 | `09-demo-hardening.md` | `feat/demo-hardening` | 06, 07, 08 | **done** |
+| 10 | `10-blueprint-docs.md` | `feat/blueprint-docs` | — (docs only) | **done** |
 
 Day mapping (3-day target): 01+02 = Day 1 AM · 03+04 = Day 1 PM · 05 = Day 2 AM ·
 06 = Day 2 PM · 07+08 = Day 3 AM · 09 = Day 3 PM (FEATURE FREEZE before 09) ·

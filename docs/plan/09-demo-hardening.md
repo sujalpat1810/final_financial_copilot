@@ -1,6 +1,6 @@
 # Feature 09 — Demo hardening & rehearsal (FEATURE FREEZE — no new features here)
 
-**Branch:** `feat/demo-hardening` · **Depends on:** 06, 07, 08 merged · **Status:** pending
+**Branch:** `feat/demo-hardening` · **Depends on:** 06, 07, 08 · **Status:** done
 
 ## Goal
 
@@ -46,4 +46,18 @@ stop and re-read the cut order in 00-OVERVIEW.md.
 
 ## Drill results / Handoff notes
 
-_(fill at session end)_
+- Smoke: 24/24 green from a clean reset (Q&A, refusal, citation→PDF, recon
+  end-to-end, notice with gate). Exit code gates the demo.
+- Drill provider-loss: invalid GROQ key → labelled extractive answers, no
+  traceback, no key text in the response. PASS.
+- Drill double-run: two concurrent recon runs → distinct immutable run ids,
+  identical deterministic buckets. PASS.
+- Drill abstention: covered in smoke (named refusal, 0 citations, 1.5s vs 4.9s).
+- Cold start: reset → server → smoke sequence exercised repeatedly. PASS.
+- Real bug found by smoke: open source panel overlaying the Notices button
+  after a tab switch — tab switches now close the panel (main.js).
+- reset_demo must load_dotenv itself (caught live: provider read "none").
+- Fallback screen recording NOT made (no display recording in this env) —
+  record during your rehearsal, note path in DEMO_CHECKLIST.md.
+- Groq daily cap note: a full smoke ≈ 16 LLM calls; several smokes/day fit
+  ~1,000/day easily.

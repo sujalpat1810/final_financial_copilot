@@ -1,6 +1,6 @@
 # Feature 10 — Consulting blueprint + demo script documents
 
-**Branch:** `feat/blueprint-docs` · **Depends on:** none (docs only; can run any time after Session 0; final polish after 09) · **Status:** pending
+**Branch:** `feat/blueprint-docs` · **Depends on:** none · **Status:** done
 
 ## Goal
 
@@ -146,10 +146,10 @@ Zoho Practice pricing; TaxCloudIndia shutdown.
 
 ## Steps
 
-1. Draft BLUEPRINT.md (sections 1-14) — commit. 2. Sections 15-28 — commit.
-3. DEMO_SCRIPT.md — commit. 4. Cross-check every ⚠️/✅ label survived into the text;
-no ❌ item present. Merge.
+Done in one pass; ⚠️ labels carried through; no ❌ item present.
 
 ## Handoff notes
 
-_(fill at session end)_
+- docs/BLUEPRINT.md (28 sections) + docs/DEMO_SCRIPT.md written and merged.
+- Both end with the verify-before-presenting list; the demo script marks the
+  spoken attributions (⚠️) inline in the narration.
