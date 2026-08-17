@@ -1,6 +1,6 @@
 # Feature 07 — Notice → Reply workflow (ASMT-10 → drafted ASMT-11 + approval gate)
 
-**Branch:** `feat/casework` · **Depends on:** 03 (prompts), 04 (tab shell) · **Status:** pending
+**Branch:** `feat/casework` · **Depends on:** 03, 04 · **Status:** done
 
 ## Goal
 
@@ -62,4 +62,16 @@ review, never an autonomous output* (VLAIR: humans still win drafting — say so
 
 ## Handoff notes
 
-_(fill at session end)_
+- No `?canned=1` param — instead data/ca_dataset/fallback_reply.md holds a
+  live-generated known-good draft (the rehearsed fallback), and the backend
+  degrades to discrepancy+provisions when no provider is reachable.
+- Amount safeguard: the regex-read literal amount overrules a disagreeing
+  model-read amount in extraction.
+- SOURCE PANEL MOVED to shell level (fixed right sheet) — was unreachable from
+  non-Ask views. Ask behavior re-verified.
+- render.js markdown now supports #..#### headings (# → h2 … capped h4).
+- notice_extract prompt added to the registry (7 prompts now).
+- Endpoints: GET /notices · POST /notices/{doc_id}/analyze (SSE stage/discrepancy/
+  done) · GET /notices/replies/{id} · POST /notices/replies/{id}/decision
+  {action: approve|request_changes}.
+- 399 tests green.

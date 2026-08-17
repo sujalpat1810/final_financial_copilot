@@ -51,7 +51,7 @@ CA (browser) — vanilla-JS SPA, tabs: Ask / Reconcile / Notices
 | 04 | `04-frontend-reskin.md` | `feat/frontend-reskin` | 02 | **done** |
 | 05 | `05-recon-engine.md` | `feat/recon-engine` | 02 | **done** |
 | 06 | `06-recon-ui.md` | `feat/recon-ui` | 04, 05 | **done** |
-| 07 | `07-casework.md` | `feat/casework` | 03, 04 | pending |
+| 07 | `07-casework.md` | `feat/casework` | 03, 04 | **done** |
 | 08 | `08-dual-act.md` | `feat/dual-act` | 03, 04 | pending |
 | 09 | `09-demo-hardening.md` | `feat/demo-hardening` | 06, 07, 08 | pending |
 | 10 | `10-blueprint-docs.md` | `feat/blueprint-docs` | — (docs only) | pending |
