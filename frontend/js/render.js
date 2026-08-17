@@ -124,6 +124,16 @@ function renderAnswerBody(answer) {
     const bullet = trimmed.match(/^[-*•]\s+(.*)$/);
     if (bullet) { flushParagraph(); bullets.push(bullet[1]); continue; }
 
+    // Headings — needed for structured drafts (the notice reply's fixed
+    // skeleton is ## sections). Levels beyond h4 collapse to h4.
+    const heading = trimmed.match(/^(#{1,4})#*\s+(.*)$/);
+    if (heading) {
+      flushAll();
+      const level = Math.min(heading[1].length + 1, 4); // # -> h2, ## -> h3…
+      out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
     flushBullets();
     paragraph.push(trimmed);
   }
@@ -406,3 +416,7 @@ export function renderError(container, question, message) {
 
 // Exported for unit tests.
 export const _internal = { renderAnswerBody, renderTable, isNumericCell };
+
+// The markdown-subset renderer, used by the Notices panel for drafted replies.
+// It escapes its input internally, so callers pass raw model text.
+export { renderAnswerBody };

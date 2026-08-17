@@ -154,6 +154,20 @@ PROMPTS: dict[str, str] = {
         with no surrounding prose or code fences.
     """).strip(),
 
+    "notice_extract": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        EXTRACTING A NOTICE'S PARTICULARS
+        You are given the text of one tax notice.  Extract its particulars
+        into JSON — read them off the notice, never infer or invent one.
+        A particular the notice does not state is null.
+
+        Respond ONLY with a JSON object of this exact shape, no surrounding
+        prose or code fences:
+        {"notice_type": "...", "reference_no": "...", "gstin": "...",
+         "period": "...", "alleged_discrepancy": "one-paragraph summary",
+         "amount": 12345.67, "sections_cited": ["..."], "reply_form": "...",
+         "reply_due_days": 30}
+    """).strip(),
+
     "notice_reply": _CORE_RULES + "\n\n" + textwrap.dedent("""
         DRAFTING A REPLY TO A SCRUTINY NOTICE
         Draft a formal reply in FORM GST ASMT-11 register — Indian professional

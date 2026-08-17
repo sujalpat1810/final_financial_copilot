@@ -209,35 +209,37 @@
         </div>
       </div>
 
-      <!-- ══ SOURCE PANEL — a side panel, not a modal: the answer stays
-           visible while the source is open. ══ -->
-      <aside class="panel" id="panel" hidden aria-label="Source document" tabindex="-1">
-        <div class="panel-hd">
-          <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
-          <span class="n" id="panelDoc">—</span>
-          <span class="pg" id="panelPage"></span>
-          <div style="flex:1"></div>
-          <a class="btn" id="panelDownload" download>
-            <svg class="i i-sm"><use href="#i-dl"/></svg> PDF
-          </a>
-          <button class="btn" id="panelClose" aria-label="Close source panel (Escape)">
-            <svg class="i i-sm"><use href="#i-x"/></svg>
-          </button>
-        </div>
 
-        <div class="panel-bd" id="panelBody">
-          <div class="panel-state">No source open.</div>
-        </div>
-
-        <div class="panel-ft">
-          <span class="lbl">Retrieved chunk</span>
-          <div class="x" id="panelExcerpt">—</div>
-          <div class="hl-state off" id="panelHlState" hidden></div>
-        </div>
-      </aside>
 
     </div>
   </div>
+
+  <!-- ══ SOURCE PANEL — a side panel, not a modal: the answer stays
+       visible while the source is open. ══ -->
+  <aside class="panel" id="panel" hidden aria-label="Source document" tabindex="-1">
+    <div class="panel-hd">
+      <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-file"/></svg>
+      <span class="n" id="panelDoc">—</span>
+      <span class="pg" id="panelPage"></span>
+      <div style="flex:1"></div>
+      <a class="btn" id="panelDownload" download>
+        <svg class="i i-sm"><use href="#i-dl"/></svg> PDF
+      </a>
+      <button class="btn" id="panelClose" aria-label="Close source panel (Escape)">
+        <svg class="i i-sm"><use href="#i-x"/></svg>
+      </button>
+    </div>
+
+    <div class="panel-bd" id="panelBody">
+      <div class="panel-state">No source open.</div>
+    </div>
+
+    <div class="panel-ft">
+      <span class="lbl">Retrieved chunk</span>
+      <div class="x" id="panelExcerpt">—</div>
+      <div class="hl-state off" id="panelHlState" hidden></div>
+    </div>
+  </aside>
 
   <!-- ══ RECONCILE — filled by js/recon.js ══ -->
   <div class="view view-page" id="view-recon" hidden>

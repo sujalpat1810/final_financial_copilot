@@ -32,6 +32,9 @@ from app.models import (
     ReconException,
     ReconRunInfo,
     ReconStats,
+    NoticeDiscrepancy,
+    NoticeListItem,
+    NoticeReply,
     SourceCitation,
 )
 
@@ -41,7 +44,8 @@ JS_DIR = Path(__file__).resolve().parent.parent / "frontend" / "js"
 API_FIELDS: set[str] = set()
 for model in (QueryResponse, SourceCitation, DocumentInfo, DocumentListResponse,
               HealthResponse, IngestResponse, ReconChecks, ReconStats, BooksRow,
-              Gstr2bRow, ReconException, ReconRunInfo, ClientRecord):
+              Gstr2bRow, ReconException, ReconRunInfo, ClientRecord,
+              NoticeDiscrepancy, NoticeReply, NoticeListItem):
     API_FIELDS |= set(model.model_fields)
 
 # snake_case property accesses that are not API fields.

@@ -364,3 +364,37 @@ class ClientRecord(BaseModel):
     gstin: str | None = None
     pan: str | None = None
     state_code: str | None = None
+
+
+# ── Notice casework (feature 07) ─────────────────────────────────────────────
+
+class NoticeDiscrepancy(BaseModel):
+    """A notice's extracted particulars — read off the notice, never invented."""
+    notice_type: str | None = None
+    reference_no: str | None = None
+    gstin: str | None = None
+    period: str | None = None
+    alleged_discrepancy: str | None = None
+    amount: float | None = None
+    sections_cited: list[str] = []
+    reply_form: str | None = None
+    reply_due_days: int | None = None
+    extraction: str | None = None       # "generated" | "regex"
+
+
+class NoticeReply(BaseModel):
+    reply_id: int
+    notice_doc_id: str
+    discrepancy: NoticeDiscrepancy | None = None
+    draft_md: str
+    sources: list[SourceCitation] = []
+    model: str | None = None
+    prompt_version: str | None = None
+    status: str = "draft"
+    created_at: str | None = None
+
+
+class NoticeListItem(DocumentInfo):
+    """A notice document plus its latest reply's state, for the picker."""
+    latest_reply_id: int | None = None
+    latest_reply_status: str | None = None

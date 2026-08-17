@@ -369,3 +369,18 @@ export function reconDecide(excId, action, note) {
 export function reconLogUrl(runId) {
   return apiUrl(`/recon/runs/${encodeURIComponent(runId)}/log`);
 }
+
+
+// ── Notices (feature 07) ───────────────────────────────────────────────────────
+
+export function listNotices() { return request('/notices'); }
+export function analyzeNotice(docId, onEvent) {
+  return streamSSE(`/notices/${encodeURIComponent(docId)}/analyze`, {}, onEvent);
+}
+export function decideReply(replyId, action, note) {
+  return request(`/notices/replies/${encodeURIComponent(replyId)}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, note: note || null }),
+  });
+}

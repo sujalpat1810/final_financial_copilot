@@ -146,7 +146,9 @@ app = FastAPI(
 )
 
 from app.routes_recon import router as recon_router
+from app.routes_casework import router as casework_router
 app.include_router(recon_router)
+app.include_router(casework_router)
 
 app.add_middleware(
     CORSMiddleware,
