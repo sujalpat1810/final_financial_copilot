@@ -1,6 +1,6 @@
 # Feature 01 — Client as a first-class dimension + filter refactor + bug fixes
 
-**Branch:** `feat/domain-client` · **Depends on:** none · **Status:** pending
+**Branch:** `feat/domain-client` · **Depends on:** none · **Status:** done
 
 ## Goal
 
@@ -55,4 +55,14 @@ Record the choice in Handoff notes.
 
 ## Handoff notes
 
-_(fill at session end)_
+- Went with the full `filters: dict` refactor (no escape hatch needed) — only 3
+  test callsites broke, all mechanical.
+- Chroma builds `{"$and": [...]}` when >1 condition is active (bare dict for 1) —
+  newer chromadb requires this.
+- `QueryRequest.retrieval_filters()` is the helper callers should use; section_type
+  stays a separate substring param on retrieve().
+- Legacy provenance lines are byte-identical (guarded by
+  tests/test_client_dimension.py::test_provenance_line_unchanged_for_legacy_documents).
+- Bonus fixes landed here: unique temp-upload filename (concurrency), plus the two
+  known bugs (reindex indexed_text, /query _prepare dedupe).
+- 325 tests green (was 315).

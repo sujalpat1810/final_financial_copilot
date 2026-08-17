@@ -45,7 +45,7 @@ CA (browser) — vanilla-JS SPA, tabs: Ask / Reconcile / Notices
 
 | # | Plan file | Branch | Depends on | Status |
 |---|---|---|---|---|
-| 01 | `01-domain-client.md` | `feat/domain-client` | — | pending |
+| 01 | `01-domain-client.md` | `feat/domain-client` | — | **done** |
 | 02 | `02-ca-dataset.md` | `feat/ca-dataset` | 01 | pending |
 | 03 | `03-prompts-claude.md` | `feat/prompts-claude` | 02 | pending |
 | 04 | `04-frontend-reskin.md` | `feat/frontend-reskin` | 02 | pending |
