@@ -136,12 +136,14 @@ financial_copilot/
 
 ### 1. Install dependencies
 
-> **Python version**: PyTorch officially supports Python **3.9–3.12**.  
-> If you are on Python 3.13 or 3.14, install the CPU-only torch wheel first:
+> **Python version**: verified on **3.11.9** with **torch 2.13.0+cpu**.
+> Python 3.11 or 3.12 is the recommended target. torch is the binding constraint
+> on the interpreter in practice — check its current support matrix before moving
+> to a newer Python. To avoid pulling the much larger default (CUDA) build,
+> install the CPU wheel first:
 > ```bash
-> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+> pip install torch --index-url https://download.pytorch.org/whl/cpu
 > ```
-> Using Python 3.11 or 3.12 avoids this constraint entirely.
 
 ```bash
 # Create and activate a virtual environment (recommended)
@@ -153,6 +155,15 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 ```
+
+> **Reproducing the verified environment exactly**: `requirements.txt` carries
+> lower bounds, so a fresh install picks up whatever is current. If you need the
+> precise version set this project was last tested against — for CI, or to rule
+> out a version-specific bug — use the lockfile instead:
+> ```bash
+> pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+> pip install -r requirements.lock.txt
+> ```
 
 > **First run**: sentence-transformers will download `all-MiniLM-L6-v2` (~80 MB)
 > and the cross-encoder `ms-marco-MiniLM-L-6-v2` (~25 MB) automatically.
