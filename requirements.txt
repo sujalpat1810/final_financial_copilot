@@ -52,6 +52,11 @@ google-genai>=2.18.1
 # and a missing SDK degrades to an extractive answer rather than failing to start.
 groq>=1.6.0
 
+# Third backend, selected with GENERATION_PROVIDER=claude (or automatically when
+# only ANTHROPIC_API_KEY is set). Same degradation rule: no key, no SDK, or a
+# failed call all fall back to an extractive answer rather than an error.
+anthropic>=0.116.0
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 numpy>=2.4.6                 # 2.x — do not relax below 2.0
 pydantic>=2.13.4

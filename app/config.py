@@ -114,6 +114,18 @@ class Config:
         default_factory=lambda: os.getenv("GROQ_API_KEY") or None
     )
 
+    # ── Claude (Anthropic) ────────────────────────────────────────────────────
+    # Third generation backend, selected with GENERATION_PROVIDER=claude, or
+    # picked up automatically when only ANTHROPIC_API_KEY is set.  Wired in
+    # ahead of having a key so that acquiring one is a .env edit, not a code
+    # change.  claude-opus-5 is a fixed id with no date suffix.
+    anthropic_model: str = field(
+        default_factory=lambda: os.getenv("ANTHROPIC_MODEL", "claude-opus-5")
+    )
+    anthropic_api_key: str | None = field(
+        default_factory=lambda: os.getenv("ANTHROPIC_API_KEY") or None
+    )
+
     # Which backend writes the answer.  Left unset it resolves from whichever key
     # is present, so adding a key is enough to switch — and setting it explicitly
     # to a provider whose key is missing is refused at startup rather than
@@ -125,27 +137,33 @@ class Config:
 
     @property
     def generation_provider(self) -> str:
-        """"gemini", "groq", or "none" when no key is configured at all."""
+        """"gemini", "groq", "claude", or "none" when no key is configured."""
         if self.generation_provider_setting:
             return self.generation_provider_setting
         if self.gemini_api_key:
             return "gemini"
         if self.groq_api_key:
             return "groq"
+        if self.anthropic_api_key:
+            return "claude"
         return "none"
 
     @property
     def generation_model(self) -> str:
         """The model id for the active provider — for logs, never for responses."""
-        return {"gemini": self.gemini_model, "groq": self.groq_model}.get(
-            self.generation_provider, ""
-        )
+        return {
+            "gemini": self.gemini_model,
+            "groq": self.groq_model,
+            "claude": self.anthropic_model,
+        }.get(self.generation_provider, "")
 
     @property
     def generation_api_key(self) -> str | None:
-        return {"gemini": self.gemini_api_key, "groq": self.groq_api_key}.get(
-            self.generation_provider
-        )
+        return {
+            "gemini": self.gemini_api_key,
+            "groq": self.groq_api_key,
+            "claude": self.anthropic_api_key,
+        }.get(self.generation_provider)
 
     # ── Confidence + abstention thresholds ────────────────────────────────────
     # These are RAW CROSS-ENCODER LOGITS, not probabilities.  The reranker
@@ -208,12 +226,16 @@ class Config:
         # answer extractively forever. Refuse at startup and say which key.
         chosen = self.generation_provider_setting
         if chosen:
-            if chosen not in ("gemini", "groq", "none"):
+            if chosen not in ("gemini", "groq", "claude", "none"):
                 raise ValueError(
-                    f"GENERATION_PROVIDER must be 'gemini', 'groq' or 'none'; "
-                    f"got {chosen!r}."
+                    f"GENERATION_PROVIDER must be 'gemini', 'groq', 'claude' or "
+                    f"'none'; got {chosen!r}."
                 )
-            needed = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY"}.get(chosen)
+            needed = {
+                "gemini": "GEMINI_API_KEY",
+                "groq": "GROQ_API_KEY",
+                "claude": "ANTHROPIC_API_KEY",
+            }.get(chosen)
             if needed and not self.generation_api_key:
                 raise ValueError(
                     f"GENERATION_PROVIDER={chosen} but {needed} is not set. "

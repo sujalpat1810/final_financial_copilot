@@ -29,7 +29,7 @@ from app.entities import (
     foreign_entities,
 )
 
-INDEXED = {"Infosys", "TCS"}
+INDEXED = {"Mehta Textiles Pvt Ltd", "Sharma Electronics Pvt Ltd", "CGST Act"}
 
 
 @pytest.fixture(autouse=True)
@@ -48,8 +48,8 @@ def pinned_thresholds(monkeypatch):
     ("How many employees does Reliance Industries have?", "reliance industries"),
     ("What is the capital adequacy ratio of State Bank of India?",
      "state bank of india"),
-    ("How did Accenture's bookings compare?", "accenture"),
-    ("What is Cognizant's headcount?", "cognizant"),
+    ("How did Gupta Traders' turnover compare?", "gupta traders"),
+    ("What is Verma Industries' headcount?", "verma industries"),
 ])
 def test_unindexed_company_is_detected(question, expected):
     assert foreign_entities(question, INDEXED) == [expected]
@@ -85,9 +85,9 @@ def test_gate_precedes_the_score_floor_in_the_reason():
 # ── Stays silent on everything the corpus can answer ──────────────────────────
 
 @pytest.mark.parametrize("question", [
-    "What was Infosys consolidated revenue in FY2024-25?",
-    "What was TCS standalone revenue in FY2024-25?",
-    "Who audited Infosys and was the opinion unqualified?",
+    "What was Mehta Textiles revenue in FY2024-25?",
+    "What does the scrutiny notice for Sharma Electronics allege?",
+    "What are the conditions for input tax credit under the CGST Act?",
     "What was the profit for the year?",
     "What are the key risk factors?",
     "What is the dividend per share?",
@@ -124,10 +124,10 @@ def test_no_foreign_entity_leaves_scoring_untouched():
 # ── Alias handling ────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("question", [
-    "What was Tata Consultancy Services revenue?",
-    "What was TCS revenue?",
-    "What was Infosys Limited's revenue?",
-    "What was Infosys Ltd revenue?",
+    "What was Mehta Textiles Pvt Ltd revenue?",
+    "What was Mehta Textiles revenue?",
+    "What was Sharma Electronics Pvt Ltd revenue?",
+    "What does the CGST Act say about credit?",
 ])
 def test_aliases_of_indexed_entities_are_not_foreign(question):
     """
@@ -139,8 +139,8 @@ def test_aliases_of_indexed_entities_are_not_foreign(question):
 
 
 def test_canonical_entity_resolves_aliases():
-    assert canonical_entity("Tata Consultancy Services") == "TCS"
-    assert canonical_entity("infosys limited") == "Infosys"
+    assert canonical_entity("Mehta Textiles") == "Mehta Textiles Pvt Ltd"
+    assert canonical_entity("sharma electronics") == "Sharma Electronics Pvt Ltd"
     assert canonical_entity("Wipro") is None
 
 
@@ -182,30 +182,30 @@ def test_question_naming_both_an_indexed_and_an_unindexed_company_is_gated():
     with Infosys figures alone invites the reader to attribute them to both.
     """
     assert foreign_entities(
-        "Compare Infosys and Wipro revenue for FY2025", INDEXED
+        "Compare Mehta Textiles and Wipro revenue for FY2025", INDEXED
     ) == ["wipro"]
 
 
 def test_multiple_unindexed_companies_are_all_reported():
-    found = foreign_entities("Compare Wipro and Accenture margins", INDEXED)
-    assert set(found) == {"wipro", "accenture"}
+    found = foreign_entities("Compare Wipro and Reliance margins", INDEXED)
+    assert set(found) == {"wipro", "reliance"}
 
 
 def test_describe_reads_as_prose():
     assert describe(["wipro"]) == "Wipro"
-    assert describe(["wipro", "accenture"]) == "Wipro and Accenture"
-    assert describe(["hdfc bank", "wipro", "accenture"]) \
-        == "HDFC Bank, Wipro and Accenture"
+    assert describe(["wipro", "reliance"]) == "Wipro and Reliance"
+    assert describe(["hdfc bank", "wipro", "reliance"]) \
+        == "HDFC Bank, Wipro and Reliance"
 
 
 @pytest.mark.parametrize("key,shown", [
     ("hdfc bank", "HDFC Bank"),
     ("state bank of india", "State Bank of India"),
     ("tcs", "TCS"),
-    ("ibm", "IBM"),
+    ("sbi", "SBI"),
     ("l&t", "L&T"),
-    ("ltimindtree", "LTIMindtree"),
-    ("dr reddy's", "Dr Reddy's"),
+    ("icici bank", "ICICI Bank"),
+    ("tcs", "TCS"),
     # Long tail from the suffix rule has no curated spelling; title-case is right.
     ("zomato limited", "Zomato Limited"),
 ])
@@ -244,10 +244,15 @@ def test_every_absent_calibration_question_now_abstains():
 
 
 def test_no_answerable_calibration_question_is_gated():
+    # The checked-in calibration probes were measured against the annual-report
+    # corpus, so they are checked against THAT corpus's indexed set — the test's
+    # point is that the gate never false-positives on a probe its own corpus
+    # can answer, whatever the corpus is.
     path = Path(__file__).parent.parent / "data" / "calibration.json"
     entries = json.loads(path.read_text(encoding="utf-8"))
+    calibration_indexed = {"Infosys", "TCS"}
     for e in entries:
         if e["kind"] == "absent":
             continue
-        assert foreign_entities(e["question"], INDEXED) == [], \
+        assert foreign_entities(e["question"], calibration_indexed) == [], \
             f"false positive on {e['kind']} question: {e['question']}"

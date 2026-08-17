@@ -330,6 +330,21 @@ async def _prepare(req: QueryRequest) -> _Prepared:
                      documents_searched, chunks_searched)
 
 
+
+def _task_for(req: QueryRequest) -> str:
+    """
+    Which prompt the generator should answer with, derived from the request's
+    metadata filters — deterministic, never inferred from the question text.
+    """
+    if req.act_version:
+        return "dual_act"
+    if req.doc_type == "statute":
+        return "qa_statute"
+    if req.client:
+        return "qa_client_docs"
+    return "default"
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest):
     """Run hybrid retrieval + reranking, then generate — unless evidence is too thin."""
@@ -375,7 +390,7 @@ async def query(req: QueryRequest):
     # plus up to 3 s of time.sleep() if a transient failure is retried.
     t1 = time.perf_counter()
     answer, answer_source = await run_in_threadpool(
-        generate_answer, req.question, results,
+        generate_answer, req.question, results, _task_for(req),
     )
     generation_ms = (time.perf_counter() - t1) * 1000
 
@@ -477,7 +492,7 @@ async def query_stream(req: QueryRequest):
             # thread; iterate_in_threadpool hands each yielded item back to the
             # event loop without the generator ever running on it.
             async for kind, payload in iterate_in_threadpool(
-                stream_answer(req.question, prep.results)
+                stream_answer(req.question, prep.results, _task_for(req))
             ):
                 if kind == "delta":
                     yield _sse("delta", {"text": payload})
