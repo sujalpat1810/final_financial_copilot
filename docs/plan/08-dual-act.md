@@ -1,6 +1,6 @@
 # Feature 08 — Dual-Act temporal beat (1961 vs 2025 Income-tax Act)
 
-**Branch:** `feat/dual-act` · **Depends on:** 03, 04 · **Status:** pending
+**Branch:** `feat/dual-act` · **Depends on:** 03, 04 · **Status:** done
 
 ## Goal
 
@@ -51,4 +51,9 @@ the Ask view under a "Brief me on {client}" button. If attempted, record in Hand
 
 ## Handoff notes
 
-_(fill at session end)_
+- Toggle #compareActs in the composer; seed "When is a tax audit of business
+  accounts required?" auto-enables it. Sequential queries via api.query with
+  actVersion 1961 then 2025; per-column cards rendered by renderResponse.
+- Stretch (client briefing) NOT attempted — time went to browser verification
+  of features 06/07. It remains the documented cut.
+- Browser-verified: 44AB vs 63 with chips per column.
