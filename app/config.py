@@ -59,6 +59,13 @@ class Config:
         default_factory=lambda: os.getenv("PDF_STORE_DIR", "data/pdf_store")
     )
 
+    # The structured store: clients, deadlines, reconciliation runs, exceptions,
+    # approvals, notice replies.  Gitignored runtime state, rebuilt from the
+    # dataset seeds by scripts/reset_demo.py.
+    ca_db_path: str = field(
+        default_factory=lambda: os.getenv("CA_DB_PATH", "data/ca_demo.db")
+    )
+
     # ── Embedding model (sentence-transformers, local, no API key needed) ─────
     embedding_model: str = field(
         default_factory=lambda: os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")

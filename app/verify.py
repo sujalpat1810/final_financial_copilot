@@ -52,3 +52,38 @@ def gstin_checksum_valid(gstin: str) -> bool:
     if not _GSTIN_SHAPE.match(g):
         return False
     return gstin_check_char(g[:14]) == g[14]
+
+
+# ── Tax arithmetic ────────────────────────────────────────────────────────────
+#
+# GST splits one tax two ways: an intra-state supply carries CGST + SGST in
+# equal halves, an inter-state supply carries IGST alone.  A row carrying both
+# kinds, or unequal halves, is malformed however it is read.
+
+def tax_split_consistent(cgst: float, sgst: float, igst: float,
+                         tol: float = 0.01) -> bool:
+    """True when the CGST/SGST/IGST combination is a legal GST split."""
+    has_intra = abs(cgst) > tol or abs(sgst) > tol
+    has_inter = abs(igst) > tol
+    if has_intra and has_inter:
+        return False
+    if has_intra:
+        return abs(cgst - sgst) <= tol
+    return True  # inter-state, or a nil-rated row — both fine
+
+
+def lines_sum_to_total(line_amounts: list[float], total: float,
+                       tol: float = 0.01) -> bool:
+    """True when the line items add up to the stated total (± rounding)."""
+    return abs(sum(line_amounts) - total) <= tol
+
+
+# The GST rate slabs in force, plus the special rates (0.25% rough diamonds,
+# 3% gold, 1.5%/6%/7.5% composition-adjacent).  A rate outside this set on an
+# invoice is either an arithmetic error or a made-up number.
+_SLABS = (0.0, 0.1, 0.25, 1.0, 1.5, 3.0, 5.0, 6.0, 7.5, 12.0, 18.0, 28.0)
+
+
+def rate_in_slabs(rate: float, tol: float = 0.01) -> bool:
+    """True when the rate is one of the GST slabs."""
+    return any(abs(rate - slab) <= tol for slab in _SLABS)

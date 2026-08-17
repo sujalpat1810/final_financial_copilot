@@ -123,7 +123,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:  # noqa: BLE001 — a cold first query beats no service
             log.warning("Warmup retrieval failed (%s); serving anyway.", e)
 
-    log.info("Financial Copilot ready.")
+    # Seed the structured store (clients, deadlines) from the dataset. Idempotent,
+    # and a missing seed directory is a warning, not a refusal to start.
+    try:
+        from app.structured import seed_from_dataset
+        counts = seed_from_dataset()
+        log.info("Structured store seeded: %s", counts)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Structured store seeding failed (%s); recon endpoints may 404.", e)
+
+    log.info("Practice Copilot ready.")
     yield
     _state.clear()
 
@@ -135,6 +144,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+from app.routes_recon import router as recon_router
+app.include_router(recon_router)
 
 app.add_middleware(
     CORSMiddleware,
