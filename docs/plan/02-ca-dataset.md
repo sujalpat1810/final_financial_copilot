@@ -1,6 +1,6 @@
 # Feature 02 — Synthetic CA dataset + corpus ingestion
 
-**Branch:** `feat/ca-dataset` · **Depends on:** 01 (doc_id must be client-aware first) · **Status:** pending
+**Branch:** `feat/ca-dataset` · **Depends on:** 01 · **Status:** done
 
 ## Goal
 
@@ -83,4 +83,18 @@ dates around the demo period).
 
 ## Handoff notes
 
-_(fill at session end)_
+- No separate `ingest_ca_corpus.py` — the existing `scripts/ingest.py --manifest
+  data/ca_dataset/manifest.json` already does manifest-driven ingest. Use that.
+- `app/verify.py` was STARTED here (GSTIN check-char + checksum only) because the
+  generator plants valid/invalid GSTINs — feature 05 extends it with tax-math checks.
+- EXPECTED is importable (`from scripts.make_ca_dataset import EXPECTED`) and also
+  written to `data/ca_dataset/expected.json`. books_rows=40, gstr2b_rows=39,
+  buckets 3/4/2/2 + 1 duplicate, ITC at risk Rs. 38,904 (computed, matches ASMT-10).
+- PDFs are byte-deterministic (fixed creation date 2026-08-01).
+- Corpus ingested in the worktree: 13 docs / 14 chunks; old annual-report index was
+  wiped from the worktree data/ (main checkout untouched).
+- **GROQ_MODEL changed to `openai/gpt-oss-120b`** — llama-3.3-70b-versatile started
+  404ing on this key today (live observation of the silent-extractive failure mode).
+  Both worktree and main-checkout .env updated. Verified generated+cited answers.
+- Dual-Act mapping (1961 s.44AB ↔ 2025 s.63) is marked "verify against enacted
+  text" inside the PDF itself — keep that disclaimer in the demo.
