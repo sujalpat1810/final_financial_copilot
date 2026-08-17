@@ -47,7 +47,7 @@ CA (browser) — vanilla-JS SPA, tabs: Ask / Reconcile / Notices
 |---|---|---|---|---|
 | 01 | `01-domain-client.md` | `feat/domain-client` | — | **done** |
 | 02 | `02-ca-dataset.md` | `feat/ca-dataset` | 01 | **done** |
-| 03 | `03-prompts-claude.md` | `feat/prompts-claude` | 02 | pending |
+| 03 | `03-prompts-claude.md` | `feat/prompts-claude` | 02 | **done** |
 | 04 | `04-frontend-reskin.md` | `feat/frontend-reskin` | 02 | pending |
 | 05 | `05-recon-engine.md` | `feat/recon-engine` | 02 | pending |
 | 06 | `06-recon-ui.md` | `feat/recon-ui` | 04, 05 | pending |

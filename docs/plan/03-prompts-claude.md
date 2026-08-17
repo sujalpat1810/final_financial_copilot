@@ -1,6 +1,6 @@
 # Feature 03 — Prompt registry + Claude provider + client entity gate
 
-**Branch:** `feat/prompts-claude` · **Depends on:** 02 · **Status:** pending
+**Branch:** `feat/prompts-claude` · **Depends on:** 02 · **Status:** done
 
 ## Goal
 
@@ -70,4 +70,16 @@ Task-specific:
 
 ## Handoff notes
 
-_(fill at session end)_
+- Task keys: default / qa_statute / qa_client_docs / recon_explain / notice_reply /
+  dual_act. `main._task_for(req)` picks by metadata filters (act_version→dual_act,
+  doc_type=statute→qa_statute, client→qa_client_docs).
+- Claude provider: `GENERATION_PROVIDER=claude` + ANTHROPIC_API_KEY; default model
+  claude-opus-5; refusal stop_reason raises → extractive fallback. UNTESTED against
+  the live API (no key yet) — mocked tests only. When a key arrives, run one manual
+  call; consider server-side `fallbacks: "default"` beta then.
+- recon_explain returns bare JSON {cause, recommended_action} — feature 05 parses it.
+- Source labels now: client|doc_type-class|FY|basis|page. `[General]` is the
+  model-knowledge tag (not [Model knowledge]).
+- Entity gate INDEXED test fixture is the demo set; calibration probes checked
+  against {Infosys, TCS} (their own corpus).
+- 338 tests green.
