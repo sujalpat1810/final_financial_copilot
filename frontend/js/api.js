@@ -110,7 +110,8 @@ export function listDocuments() {
   return request('/documents');
 }
 
-export function query({ question, docName = null, fiscalYear = null, topN = null }) {
+export function query({ question, docName = null, fiscalYear = null, topN = null,
+                        client = null, docType = null, actVersion = null }) {
   return request('/query', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -119,6 +120,9 @@ export function query({ question, docName = null, fiscalYear = null, topN = null
       doc_name: docName,
       fiscal_year: fiscalYear,
       top_n: topN,
+      client,
+      doc_type: docType,
+      act_version: actVersion,
     }),
   });
 }
@@ -135,7 +139,8 @@ export function query({ question, docName = null, fiscalYear = null, topN = null
  * on transport failure or timeout, so the caller can fall back to api.query.
  */
 export async function queryStream(
-  { question, docName = null, fiscalYear = null, topN = null },
+  { question, docName = null, fiscalYear = null, topN = null,
+    client = null, docType = null, actVersion = null },
   { onMeta, onDelta, onAbstained, onDone } = {},
 ) {
   const controller = new AbortController();
@@ -150,6 +155,7 @@ export async function queryStream(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question, doc_name: docName, fiscal_year: fiscalYear, top_n: topN,
+        client, doc_type: docType, act_version: actVersion,
       }),
       signal: controller.signal,
     });
@@ -219,12 +225,16 @@ export async function queryStream(
  * nothing to report, which is why the caller switches to an indeterminate bar
  * instead of inventing a percentage.
  */
-export function ingest({ file, entity, fiscalYear, docName = '', onProgress }) {
+export function ingest({ file, entity, fiscalYear, docName = '',
+                         client = '', docType = '', actVersion = '', onProgress }) {
   const form = new FormData();
   form.append('file', file);
   form.append('entity', entity);
   form.append('fiscal_year', fiscalYear);
   if (docName) form.append('doc_name', docName);
+  if (client) form.append('client', client);
+  if (docType) form.append('doc_type', docType);
+  if (actVersion) form.append('act_version', actVersion);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

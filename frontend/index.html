@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Financial Copilot</title>
+<title>Practice Copilot</title>
 
 <!-- Self-hosted fonts. No external requests anywhere in this page: a CDN link
      is a request on every load, which contradicts an on-prem confidentiality
@@ -46,10 +46,16 @@
     <div class="wordmark">
       <div class="glyph"><svg class="i i-sm"><use href="#i-book"/></svg></div>
       <div>
-        <div class="name">Financial Copilot</div>
-        <div class="sub">Document Research</div>
+        <div class="name">Practice Copilot</div>
+        <div class="sub">CA Practice Platform</div>
       </div>
     </div>
+
+    <nav class="tabs" id="tabs" aria-label="Workspace">
+      <button class="tab active" data-view="ask" aria-current="page">Ask</button>
+      <button class="tab" data-view="recon">Reconcile</button>
+      <button class="tab" data-view="notices">Notices</button>
+    </nav>
 
     <div class="hsep"></div>
 
@@ -75,7 +81,7 @@
     </button>
   </header>
 
-  <div class="row">
+  <div class="row view" id="view-ask">
 
     <!-- ══ SIDEBAR ══ -->
     <aside class="sidebar">
@@ -99,11 +105,34 @@
              year is the failure this tool exists to prevent. -->
         <div class="field">
           <label for="entityInput">Entity <span class="req" aria-hidden="true">*</span></label>
-          <input id="entityInput" required placeholder="Infosys" autocomplete="off" />
+          <input id="entityInput" required placeholder="Mehta Textiles Pvt Ltd" autocomplete="off" />
         </div>
         <div class="field">
           <label for="fyInput">Fiscal year <span class="req" aria-hidden="true">*</span></label>
-          <input id="fyInput" required placeholder="FY2024-25" autocomplete="off" />
+          <input id="fyInput" required placeholder="FY2025-26" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="clientInput">Client</label>
+          <input id="clientInput" placeholder="blank for firm knowledge" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="docTypeInput">Document type</label>
+          <select id="docTypeInput">
+            <option value="">—</option>
+            <option value="invoice">Invoice</option>
+            <option value="notice">Tax notice</option>
+            <option value="financials">Financial statements</option>
+            <option value="statute">Statute</option>
+            <option value="register">Register</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="actVersionInput">Act version</label>
+          <select id="actVersionInput">
+            <option value="">—</option>
+            <option value="1961">1961 Act</option>
+            <option value="2025">2025 Act</option>
+          </select>
         </div>
         <div class="field">
           <label for="docNameInput">Document name</label>
@@ -111,8 +140,8 @@
         </div>
 
         <div class="hint">
-          Standalone vs consolidated basis is detected from the report's own
-          section headings.
+          Client, type and act version are supplied here, never read off the
+          document — a misattributed figure is the failure this tool prevents.
         </div>
 
         <div class="progress" id="uploadProgress" hidden>
@@ -125,6 +154,12 @@
         <div class="side-hd">
           <svg class="i i-sm" style="color:var(--ink-3)"><use href="#i-files"/></svg>
           <span class="lbl">Indexed</span>
+        </div>
+        <div class="field" style="margin-top:8px">
+          <label for="clientFilter">Client filter</label>
+          <select id="clientFilter">
+            <option value="">All clients &amp; firm knowledge</option>
+          </select>
         </div>
       </div>
       <div class="doclist" id="docList">
@@ -139,16 +174,17 @@
         <div class="stream" id="stream">
           <div class="stream-inner" id="streamInner">
             <section class="welcome" id="welcome">
-              <h1>Financial Copilot</h1>
+              <h1>Practice Copilot</h1>
               <p>
-                Ask questions across indexed annual reports. Every figure is
-                returned with the entity, fiscal year and basis it belongs to,
-                and every citation opens the page it came from.
+                Ask questions across your clients' documents and the firm's
+                statute library. Every answer is cited, every citation opens
+                the page it came from, and questions the corpus cannot answer
+                are refused rather than guessed.
               </p>
               <ol id="welcomeSteps">
-                <li>Add a PDF, with its entity and fiscal year.</li>
                 <li>Ask a question, or pick one of the examples below.</li>
                 <li>Click any citation to read the source page.</li>
+                <li>Use Reconcile and Notices for the agent workflows.</li>
               </ol>
             </section>
           </div>
@@ -200,6 +236,26 @@
         </div>
       </aside>
 
+    </div>
+  </div>
+
+  <!-- ══ RECONCILE — filled by js/recon.js ══ -->
+  <div class="view view-page" id="view-recon" hidden>
+    <div class="view-inner" id="reconRoot">
+      <section class="welcome">
+        <h1>Reconciliation</h1>
+        <p>The GSTR-2B ↔ purchase register reconciliation workspace.</p>
+      </section>
+    </div>
+  </div>
+
+  <!-- ══ NOTICES — filled by js/notice.js ══ -->
+  <div class="view view-page" id="view-notices" hidden>
+    <div class="view-inner" id="noticeRoot">
+      <section class="welcome">
+        <h1>Notices</h1>
+        <p>Scrutiny-notice analysis and drafted replies, behind CA approval.</p>
+      </section>
     </div>
   </div>
 </div>

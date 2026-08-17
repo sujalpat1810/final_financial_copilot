@@ -426,3 +426,31 @@
 .toast.error{border-color:var(--stop);background:var(--stop-wash);color:#7d1d22}
 .toast.success{border-color:var(--ok-line);background:var(--ok-wash);color:var(--ok)}
 .toast svg{flex:none;margin-top:2px}
+
+/* ── CA reskin (feature 04) ─────────────────────────────────────────────────
+   Chip segments for the client/doc-type provenance, and the workspace tabs.
+   Colours reuse existing tokens only — contrast is measured per token pair
+   and enforced by scripts/check_contrast.py. */
+.prov .p-client{font-weight:600;color:var(--ink-1)}
+.prov .p-doctype{color:var(--ink-2)}
+
+.tabs{display:flex;align-items:center;gap:2px;margin-left:14px}
+.tab{
+  appearance:none;border:1px solid transparent;background:transparent;
+  color:var(--ink-2);font:inherit;font-size:12.5px;font-weight:600;
+  padding:5px 12px;border-radius:7px;cursor:pointer;
+}
+.tab:hover{color:var(--ink-1);background:var(--surface-accent)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tab.active{
+  color:var(--accent);background:var(--accent-wash);
+  border-color:var(--line-control);
+}
+
+/* Full-width panels for the Reconcile and Notices workspaces. */
+.view-page{overflow-y:auto;min-height:0;flex:1}
+.view-page .view-inner{max-width:980px;margin:0 auto;padding:28px 24px}
+
+/* The hidden attribute must beat .row's display:flex — without this, switching
+   tabs would stack all three views on top of each other. */
+.view[hidden]{display:none !important}
