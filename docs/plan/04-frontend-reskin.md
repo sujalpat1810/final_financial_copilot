@@ -1,6 +1,6 @@
 # Feature 04 — Frontend reskin: CA branding, client selector, tab navigation
 
-**Branch:** `feat/frontend-reskin` · **Depends on:** 02 · **Status:** pending
+**Branch:** `feat/frontend-reskin` · **Depends on:** 02 · **Status:** done
 
 ## Goal
 
@@ -52,4 +52,11 @@ CSS token system, icon sprite. Do not restyle these.
 
 ## Handoff notes
 
-_(fill at session end)_
+- Product name: **Practice Copilot**. Tabs dispatch a `viewshown` CustomEvent
+  (detail.view = ask|recon|notices) — recon.js/notice.js should lazy-init on it.
+- Panel roots: `#reconRoot` inside `#view-recon`, `#noticeRoot` inside `#view-notices`.
+- Chip segments now p-client / p-doctype / p-fy / (p-bas for financials+legacy) / p-pg.
+- Client filter: `#clientFilter` select, state.clientFilter, passed as `client` on
+  query + queryStream. Options derived from corpus.
+- `.view[hidden]{display:none !important}` is load-bearing (row is flex).
+- format.js gained `docTypeLabel()`.
