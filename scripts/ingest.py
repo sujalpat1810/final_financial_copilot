@@ -178,6 +178,9 @@ def main(argv: list[str] | None = None) -> int:
                 doc_name,
                 entity=entry["entity"],
                 fiscal_year=entry["fiscal_year"],
+                client=entry.get("client"),
+                doc_type=entry.get("doc_type"),
+                act_version=entry.get("act_version"),
             )
         except AlreadyIndexed:
             # The whole point of the content hash: a re-run after an interruption
