@@ -30,6 +30,11 @@ venv/
 env/
 ENV/
 
+# ── CA demo runtime state (rebuilt by scripts/reset_demo.py; the dataset in
+#    data/ca_dataset/ IS committed — it is the demo fixture) ───────────────────
+data/ca_demo.db
+data/runs/
+
 # ── Data / indexes (large binary files, rebuilt on first run) ─────────────────
 data/faiss_index*
 data/bm25_index.pkl
