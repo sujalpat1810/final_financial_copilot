@@ -49,79 +49,55 @@ import re
 
 # ── Aliases for entities that may be indexed ──────────────────────────────────
 # Maps an alias to the canonical `entity` string used at ingest time.  The
-# indexed set is read from the store at call time, so ingesting Wipro stops this
-# gate firing on Wipro without any code change — but the alias table still has
-# to know that "Tata Consultancy Services" and "TCS" are the same company, since
-# only one of them is what the operator typed into --entity.
+# indexed set is read from the store at call time, so ingesting a new client
+# stops this gate firing on them without any code change — but the alias table
+# still has to know that "Mehta Textiles" and "Mehta Textiles Pvt Ltd" are the
+# same client, since only one of them is what the operator typed at ingest.
 _ALIASES: dict[str, str] = {
-    "infosys": "Infosys",
-    "infosys limited": "Infosys",
-    "infosys ltd": "Infosys",
-    "tcs": "TCS",
-    "tata consultancy services": "TCS",
-    "tata consultancy services limited": "TCS",
+    # Demo clients — short forms a CA actually types.
+    "mehta textiles": "Mehta Textiles Pvt Ltd",
+    "mehta textiles pvt ltd": "Mehta Textiles Pvt Ltd",
+    "mehta textiles private limited": "Mehta Textiles Pvt Ltd",
+    "sharma electronics": "Sharma Electronics Pvt Ltd",
+    "sharma electronics pvt ltd": "Sharma Electronics Pvt Ltd",
+    "sharma electronics private limited": "Sharma Electronics Pvt Ltd",
+    # Statute corpora, so "under the CGST Act" is recognised as indexed.
+    "cgst act": "CGST Act",
+    "cgst act, 2017": "CGST Act",
+    "income-tax act": "Income-tax Act",
+    "income tax act": "Income-tax Act",
 }
 
-# ── Peer companies this corpus does NOT cover ─────────────────────────────────
-# Chosen for what a reader actually asks an Indian-IT annual-report tool: direct
-# competitors, the large-cap names that share a screen with them, and the global
-# services firms they benchmark against.  Longest phrase wins at match time, so
-# "State Bank of India" is not shadowed by a shorter entry.
+# ── Companies this corpus does NOT cover ──────────────────────────────────────
+# Names a CA plausibly asks this demo about but whose documents are NOT indexed.
+# The point of naming them is a refusal that says who it is refusing about:
+# "no documents are indexed for Gupta Traders" reads as competence, where a
+# bare "not found" reads as a search failure.  Longest phrase wins at match
+# time, so "State Bank of India" is not shadowed by a shorter entry.
 #
 # Maps the lowercase match key to how the name should be PRINTED.  Deriving the
 # display form instead — .title() — produces "Hdfc Bank" and "State Bank Of
 # India", which in a refusal shown to accountants reads as though the tool does
 # not know the company it is declining to discuss.
 _KNOWN_COMPANIES: dict[str, str] = {
-    # Indian IT services
-    "wipro": "Wipro", "hcl": "HCL", "hcl technologies": "HCL Technologies",
-    "hcltech": "HCLTech", "tech mahindra": "Tech Mahindra",
-    "ltimindtree": "LTIMindtree", "l&t infotech": "L&T Infotech",
-    "mindtree": "Mindtree", "mphasis": "Mphasis", "coforge": "Coforge",
-    "persistent systems": "Persistent Systems", "zensar": "Zensar",
-    "birlasoft": "Birlasoft", "cyient": "Cyient", "kpit": "KPIT",
-    # Global IT services / consulting
-    "accenture": "Accenture", "cognizant": "Cognizant", "capgemini": "Capgemini",
-    "ibm": "IBM", "dxc": "DXC", "dxc technology": "DXC Technology",
-    "genpact": "Genpact", "epam": "EPAM", "globant": "Globant", "atos": "Atos",
-    "ntt data": "NTT Data", "deloitte": "Deloitte", "pwc": "PwC", "kpmg": "KPMG",
-    "ernst & young": "Ernst & Young", "mckinsey": "McKinsey",
-    # Indian large caps commonly asked about
+    "gupta traders": "Gupta Traders",
+    "verma industries": "Verma Industries",
+    "patel exports": "Patel Exports",
+    # Household names, so a stray big-company question abstains by name.
     "reliance": "Reliance", "reliance industries": "Reliance Industries",
-    "ril": "RIL", "tata motors": "Tata Motors", "tata steel": "Tata Steel",
-    "tata power": "Tata Power", "titan": "Titan", "adani": "Adani",
-    "adani enterprises": "Adani Enterprises", "adani ports": "Adani Ports",
-    "bharti airtel": "Bharti Airtel", "airtel": "Airtel", "jio": "Jio",
-    "vodafone idea": "Vodafone Idea", "itc": "ITC",
-    "hindustan unilever": "Hindustan Unilever", "hul": "HUL",
-    "nestle india": "Nestlé India", "maruti": "Maruti",
-    "maruti suzuki": "Maruti Suzuki", "mahindra & mahindra": "Mahindra & Mahindra",
-    "larsen & toubro": "Larsen & Toubro", "l&t": "L&T",
-    "asian paints": "Asian Paints", "ultratech": "UltraTech",
-    "sun pharma": "Sun Pharma", "dr reddy's": "Dr Reddy's", "cipla": "Cipla",
-    "divi's laboratories": "Divi's Laboratories",
-    "bajaj finance": "Bajaj Finance", "bajaj finserv": "Bajaj Finserv",
-    "jsw steel": "JSW Steel", "coal india": "Coal India", "ongc": "ONGC",
-    # Banks and financials
-    "hdfc": "HDFC", "hdfc bank": "HDFC Bank", "icici": "ICICI",
-    "icici bank": "ICICI Bank", "axis bank": "Axis Bank",
+    "infosys": "Infosys", "tcs": "TCS",
+    "tata consultancy services": "Tata Consultancy Services",
+    "wipro": "Wipro", "hdfc bank": "HDFC Bank",
     "state bank of india": "State Bank of India", "sbi": "SBI",
-    "kotak mahindra bank": "Kotak Mahindra Bank", "kotak": "Kotak",
-    "indusind bank": "IndusInd Bank", "yes bank": "Yes Bank",
-    "punjab national bank": "Punjab National Bank", "pnb": "PNB",
-    "bank of baroda": "Bank of Baroda", "canara bank": "Canara Bank",
-    "idfc first bank": "IDFC First Bank",
-    "au small finance bank": "AU Small Finance Bank",
-    "paytm": "Paytm", "one97": "One97", "zerodha": "Zerodha",
-    "bajaj housing finance": "Bajaj Housing Finance",
-    # Global tech
-    "microsoft": "Microsoft", "google": "Google", "alphabet": "Alphabet",
-    "amazon": "Amazon", "apple": "Apple", "meta": "Meta", "facebook": "Facebook",
-    "oracle": "Oracle", "sap": "SAP", "salesforce": "Salesforce",
-    "nvidia": "NVIDIA", "intel": "Intel", "tesla": "Tesla", "netflix": "Netflix",
-    "samsung": "Samsung", "adobe": "Adobe", "cisco": "Cisco", "dell": "Dell",
-    "hp": "HP", "hewlett packard": "Hewlett Packard",
+    "icici bank": "ICICI Bank", "bharti airtel": "Bharti Airtel",
+    "hindustan unilever": "Hindustan Unilever", "adani": "Adani",
 }
+
+# For a CA practice the gate's meaning shifts from "peer company we never
+# indexed" to "client whose documents we do not hold" — and the indexed side IS
+# derived from the corpus at call time, so this table only needs names worth
+# refusing BY NAME.  The corporate suffix rule below still catches the long
+# tail of unknown "... Pvt Ltd" names.
 
 # Tokens that look like a company suffix.  A capitalised run ending in one of
 # these is treated as a company name even when the gazetteer has never heard of

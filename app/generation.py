@@ -53,19 +53,42 @@ from app.models import RetrievedChunk
 log = logging.getLogger(__name__)
 
 
-# ── Prompt template ───────────────────────────────────────────────────────────
+# ── Prompt registry ───────────────────────────────────────────────────────────
+# One prompt per task, all built on a shared discipline core.  The core exists
+# to stop one failure: a figure or legal claim stated without saying where it
+# came from.  Task prompts add only what their task needs — the core is not
+# repeated in prose there, it is prepended verbatim, so every task answers from
+# byte-identical ground rules.
 
-_SYSTEM_PROMPT = textwrap.dedent("""
-    You are a financial research assistant used by chartered accountants and
-    lawyers.  They rely on your answers professionally, so an unqualified figure is
-    worse than no figure at all.
+_CORE_RULES = textwrap.dedent("""
+    You are an assistant used by chartered accountants.  They rely on your
+    answers professionally, so an unqualified figure or an uncited legal claim
+    is worse than none at all.
 
-    You are given numbered excerpts from annual reports.  Each is labelled with the
-    entity, the fiscal year of the REPORT it was published in, the basis of the
-    financial statements it sits in, and its page number.
+    You are given numbered excerpts.  Each is labelled with its source, the
+    type of document it came from, and its page number.
 
-    Cite the page number for every factual claim, like "[Page 276]".
+    CITATIONS
+    Cite the page number for every factual claim, like "[Page 3]".  Never cite
+    a page that is not in the provided excerpts, and never invent a source.
 
+    SOURCE CLASSES
+    Each source label names the document type.  Tag statements according to
+    where they come from: [Statute] for provisions of law, [Client document]
+    for facts from the client's own documents (invoices, notices, financials),
+    and [General] for anything not grounded in the excerpts.  Keep [General]
+    statements to an absolute minimum.
+
+    OTHER RULES
+    - Use only the provided excerpts.  Do not draw on outside knowledge.
+    - If the answer is not present in the excerpts, say exactly:
+      "The answer was not found in the provided context."
+    - Do not invent or extrapolate numbers beyond what is stated.
+    - Report figures in the units the source uses and say which.
+    - Be concise but complete.  Bullet points and small tables are fine.
+""").strip()
+
+_ANNUAL_REPORT_RULES = textwrap.dedent("""
     QUALIFYING FIGURES — the most important rule
     Every figure you state must carry its entity, fiscal year and basis.
     "Revenue was Rs 1,62,990 crore" is not an acceptable answer.
@@ -73,37 +96,118 @@ _SYSTEM_PROMPT = textwrap.dedent("""
 
     THE REPORT'S YEAR IS NOT THE FIGURE'S YEAR
     The label tells you which report an excerpt came from.  The column header
-    INSIDE the excerpt tells you which year a particular number belongs to.  These
-    are different facts and you must not conflate them.  Financial statements print
-    the current year beside one or more comparative columns, so a single table
-    routinely contains figures for two different years.
-
-    When a figure comes from a comparative column, say so explicitly:
-      "The FY2023-24 comparative column of the same statement shows
-       Rs 1,53,670 crore [Page 276]."
-    If you cannot tell which column a number belongs to, say that rather than
-    guessing.
+    INSIDE the excerpt tells you which year a particular number belongs to.
+    Financial statements print the current year beside comparative columns, so
+    a single table routinely contains figures for two different years.  When a
+    figure comes from a comparative column, say so explicitly.  If you cannot
+    tell which column a number belongs to, say that rather than guessing.
 
     BASIS
     Standalone and consolidated figures differ materially and are not
     interchangeable.  Use the basis given in the label.  Where the label says
-    "Basis not determined", state that the basis could not be determined for that
-    figure.  Never infer it, and never assume consolidated because it is more
-    commonly quoted.
+    "Basis not determined", state that.  Never infer it.
 
     UNQUALIFIED QUESTIONS
     If the question does not specify an entity, fiscal year or basis, and the
-    excerpts support more than one answer, give ALL of them, each clearly labelled.
-    Never silently pick one.  A short table is the clearest format for this.
-
-    OTHER RULES
-    - Use only the provided excerpts.  Do not draw on outside knowledge.
-    - If the answer is not present in the excerpts, say exactly:
-      "The answer was not found in the provided context."
-    - Do not invent or extrapolate numbers beyond what is stated.
-    - Report figures in the units the source uses (Rs crore, Rs lakh) and say which.
-    - Be concise but complete.  Bullet points and small tables are fine.
+    excerpts support more than one answer, give ALL of them, each clearly
+    labelled.  Never silently pick one.  A short table is the clearest format.
 """).strip()
+
+PROMPTS: dict[str, str] = {
+    # The pre-CA default: annual-report Q&A discipline, unchanged in substance.
+    "default": _CORE_RULES + "\n\n" + _ANNUAL_REPORT_RULES,
+
+    "qa_statute": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        STATUTE QUESTIONS
+        Quote provision language precisely where it matters, and name the
+        section and sub-section for every provision you rely on, like
+        "section 16(2)(aa) of the CGST Act [Page 1]".  If more than one
+        provision applies, list each one.  Where a provision has conditions,
+        enumerate them rather than summarising them away.
+    """).strip(),
+
+    "qa_client_docs": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        CLIENT DOCUMENT QUESTIONS
+        Every figure must carry the client name, the period or fiscal year it
+        belongs to, and its page, like "[Page 2]".  Where the excerpt shows a
+        comparative (prior-year) column, name which year each figure belongs
+        to.  Where the label says "Basis not determined", state that rather
+        than inferring a basis.
+    """).strip() + "\n\n" + _ANNUAL_REPORT_RULES,
+
+    "recon_explain": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        RECONCILIATION EXCEPTION
+        You are given ONE reconciliation exception between a client's purchase
+        register (books) and GSTR-2B, as structured data.  All arithmetic has
+        already been done deterministically — do not recompute or dispute the
+        numbers.  Your job is the explanation a CA would give a colleague:
+
+        - State the likely cause in at most three sentences, using the
+          vocabulary of GST practice (e.g. "the supplier has not filed GSTR-1
+          for the period, so the credit is not yet available in GSTR-2B and
+          fails the condition in section 16(2)(aa)").
+        - Then ONE recommended action line (e.g. "follow up with the supplier
+          to report the invoice; do not avail the credit until it appears").
+
+        Respond ONLY with a JSON object of the form
+        {"cause": "...", "recommended_action": "..."}
+        with no surrounding prose or code fences.
+    """).strip(),
+
+    "notice_extract": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        EXTRACTING A NOTICE'S PARTICULARS
+        You are given the text of one tax notice.  Extract its particulars
+        into JSON — read them off the notice, never infer or invent one.
+        A particular the notice does not state is null.
+
+        Respond ONLY with a JSON object of this exact shape, no surrounding
+        prose or code fences:
+        {"notice_type": "...", "reference_no": "...", "gstin": "...",
+         "period": "...", "alleged_discrepancy": "one-paragraph summary",
+         "amount": 12345.67, "sections_cited": ["..."], "reply_form": "...",
+         "reply_due_days": 30}
+    """).strip(),
+
+    "notice_reply": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        DRAFTING A REPLY TO A SCRUTINY NOTICE
+        Draft a formal reply in FORM GST ASMT-11 register — Indian professional
+        legal correspondence, addressed to the proper officer.  Use EXACTLY
+        this skeleton, filling each section from the provided excerpts and the
+        discrepancy details:
+
+        ## Legal Header
+        (reference number, GSTIN, tax period, the notice being replied to)
+
+        ## Statement of Facts
+        (what the notice alleges; what the taxpayer's records show)
+
+        ## Point-wise Submissions
+        (numbered rebuttals; EVERY point must cite the governing provision
+        from the excerpts with its page, like "section 61(1) [Page 1]")
+
+        ## Prayer
+        (the relief sought — dropping of proceedings under FORM GST ASMT-12)
+
+        ## Request for Personal Hearing
+        (expressly invoke the right to be heard under section 75(4))
+
+        This is a DRAFT for review and signature by a chartered accountant.
+        Do not fabricate facts not present in the inputs; where a fact is
+        needed but unavailable, leave a bracketed placeholder like
+        [ATTACH: supplier ledger extract].
+    """).strip(),
+
+    "dual_act": _CORE_RULES + "\n\n" + textwrap.dedent("""
+        ACT-VERSION DISCIPLINE
+        The excerpts you are given come from ONE version of the Income-tax Act
+        (either the 1961 Act or the 2025 Act).  Answer strictly from that
+        version.  State the Act name and section number prominently at the
+        start of your answer.  If the excerpt contains a mapping note to the
+        other Act's numbering, report the mapped section number and repeat the
+        note's caution to verify against the enacted text.  Never mix section
+        numbers from the two Acts without labelling which Act each belongs to.
+    """).strip(),
+}
 
 
 def _source_label(r: RetrievedChunk, index: int) -> str:
@@ -115,8 +219,18 @@ def _source_label(r: RetrievedChunk, index: int) -> str:
     unknown is something it can report.
     """
     m = r.chunk.metadata
+    # Document type maps to the source class the model tags statements with —
+    # derived deterministically from metadata, never asserted by the model.
+    doc_type_label = {
+        "statute": "Statute",
+        "invoice": "Client document (invoice)",
+        "notice": "Client document (tax notice)",
+        "financials": "Client document (financial statements)",
+        "register": "Client document (register)",
+    }.get(m.doc_type or "", "Document type not recorded")
     parts = [
-        m.entity or "Entity not recorded",
+        m.client or m.entity or "Entity not recorded",
+        doc_type_label,
         m.fiscal_year or "Fiscal year not recorded",
         f"{m.basis.capitalize()} financial statements" if m.basis else "Basis not determined",
         f"Page {m.page_number}",
@@ -127,16 +241,18 @@ def _source_label(r: RetrievedChunk, index: int) -> str:
     return header
 
 
-def _build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
+def _build_prompt(question: str, chunks: list[RetrievedChunk],
+                  task: str = "default") -> str:
     context_blocks = [
         f"{_source_label(r, i)}\n{r.chunk.text}"
         for i, r in enumerate(chunks, start=1)
     ]
 
     context_text = "\n\n---\n\n".join(context_blocks)
+    system_prompt = PROMPTS.get(task, PROMPTS["default"])
 
     return (
-        f"{_SYSTEM_PROMPT}\n\n"
+        f"{system_prompt}\n\n"
         f"=== CONTEXT EXCERPTS ===\n\n{context_text}\n\n"
         f"=== QUESTION ===\n\n{question}\n\n"
         f"=== ANSWER ==="
@@ -248,8 +364,58 @@ def _stream_groq(prompt: str):
             yield text
 
 
-_CALL = {"gemini": _call_gemini, "groq": _call_groq}
-_STREAM = {"gemini": _stream_gemini, "groq": _stream_groq}
+def _anthropic_client():
+    try:
+        import anthropic
+    except ImportError:
+        raise ProviderUnavailable(
+            "anthropic is not installed. Run: pip install -r requirements.txt"
+        )
+    return anthropic.Anthropic(
+        api_key=cfg.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+    )
+
+
+# Answers here run a few hundred to ~1,500 tokens, but on current Claude models
+# max_tokens caps thinking + response text together and thinking is on by
+# default, so the ceiling needs real headroom beyond the visible answer.
+_ANTHROPIC_MAX_TOKENS = 16000
+
+
+def _call_anthropic(prompt: str) -> str:
+    # Same single-user-turn shape as Groq: the prompt carries its own
+    # instructions and labelled sources, so all providers answer from
+    # byte-identical input.
+    response = _anthropic_client().messages.create(
+        model=cfg.anthropic_model,
+        max_tokens=_ANTHROPIC_MAX_TOKENS,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    # Safety classifiers can decline with HTTP 200 + stop_reason "refusal" and
+    # empty content — raising here routes it through the shared fallback so the
+    # reader gets an extractive answer instead of an empty one.
+    if response.stop_reason == "refusal":
+        raise RuntimeError("provider declined the request (refusal)")
+    return "".join(
+        block.text for block in response.content if block.type == "text"
+    )
+
+
+def _stream_anthropic(prompt: str):
+    with _anthropic_client().messages.stream(
+        model=cfg.anthropic_model,
+        max_tokens=_ANTHROPIC_MAX_TOKENS,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        for text in stream.text_stream:
+            yield text
+        # A refusal mid-stream would end the stream early; the caller already
+        # treats a zero-character stream as a failure, and a partial stream is
+        # kept and labelled — both existing paths handle it.
+
+
+_CALL = {"gemini": _call_gemini, "groq": _call_groq, "claude": _call_anthropic}
+_STREAM = {"gemini": _stream_gemini, "groq": _stream_groq, "claude": _stream_anthropic}
 
 
 # ── Transient-failure retry ───────────────────────────────────────────────────
@@ -342,6 +508,8 @@ def generation_available() -> bool:
     try:
         if provider == "gemini":
             from google import genai  # noqa: F401
+        elif provider == "claude":
+            import anthropic  # noqa: F401
         else:
             from groq import Groq  # noqa: F401
     except ImportError:
@@ -356,7 +524,7 @@ def generation_available() -> bool:
 
 # ── Streaming ─────────────────────────────────────────────────────────────────
 
-def stream_answer(question: str, chunks: list[RetrievedChunk]):
+def stream_answer(question: str, chunks: list[RetrievedChunk], task: str = "default"):
     """
     Yield (kind, payload) as the answer is written.
 
@@ -387,7 +555,7 @@ def stream_answer(question: str, chunks: list[RetrievedChunk]):
         yield "done", (_extractive_answer(question, chunks), "extractive")
         return
 
-    prompt = _build_prompt(question, chunks)
+    prompt = _build_prompt(question, chunks, task)
     last_error: Exception | None = None
 
     for attempt in range(_MAX_ATTEMPTS):
@@ -434,7 +602,8 @@ def stream_answer(question: str, chunks: list[RetrievedChunk]):
 
 # ── Main generate function ────────────────────────────────────────────────────
 
-def generate_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, str]:
+def generate_answer(question: str, chunks: list[RetrievedChunk],
+                    task: str = "default") -> tuple[str, str]:
     """
     Returns (answer_text, answer_source) where answer_source is
     "generated" or "extractive".
@@ -458,7 +627,7 @@ def generate_answer(question: str, chunks: list[RetrievedChunk]) -> tuple[str, s
         log.warning("No generation provider configured; returning extractive answer.")
         return _extractive_answer(question, chunks), "extractive"
 
-    prompt = _build_prompt(question, chunks)
+    prompt = _build_prompt(question, chunks, task)
 
     last_error: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):

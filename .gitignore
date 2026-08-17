@@ -4,6 +4,14 @@
 .env.local
 .env.*.local
 
+# Any suffixed variant: .env.bak, .env.backup, .env.prod, .env.bak.chroma, …
+# The rules above miss these — `*.env` only matches names ENDING in ".env", so a
+# backup like `.env.bak.chroma` was showing up as an untracked file in source
+# control with live keys in it. Match the whole family instead, then re-admit the
+# one env file that is meant to be committed.
+.env.*
+!.env.example
+
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -21,6 +29,11 @@ build/
 venv/
 env/
 ENV/
+
+# ── CA demo runtime state (rebuilt by scripts/reset_demo.py; the dataset in
+#    data/ca_dataset/ IS committed — it is the demo fixture) ───────────────────
+data/ca_demo.db
+data/runs/
 
 # ── Data / indexes (large binary files, rebuilt on first run) ─────────────────
 data/faiss_index*
@@ -49,6 +62,11 @@ coverage.xml
 .idea/
 *.swp
 *.swo
+
+# Claude Code scratch state, and git worktrees created under .claude/worktrees/.
+# A worktree is a full checkout — leaving this untracked means a stray `git add -A`
+# can stage an entire nested working copy, secrets and all.
+.claude/
 
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store

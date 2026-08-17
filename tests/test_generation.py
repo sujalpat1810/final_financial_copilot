@@ -17,7 +17,8 @@ from app.config import Config, cfg
 from app.generation import _build_prompt, _source_label, generate_answer
 from app.models import Chunk, ChunkMetadata, RetrievedChunk
 
-VENDOR_WORDS = ("gemini", "google", "genai", "api key", "api_key", "openai", "llm")
+VENDOR_WORDS = ("gemini", "google", "genai", "anthropic", "claude",
+                "api key", "api_key", "openai", "llm")
 
 
 def _rc(page=276, text="Revenue from operations 162,990 153,670",
@@ -460,3 +461,128 @@ def test_openapi_schema_names_no_vendor():
 
     for word in ("gemini", "google", "genai"):
         assert word not in schema, f"{word!r} appears in the public OpenAPI schema"
+
+
+# ── Prompt registry (feature 03) ──────────────────────────────────────────────
+
+class TestPromptRegistry:
+    def test_every_task_has_a_distinct_prompt(self):
+        from app.generation import PROMPTS
+        expected = {"default", "qa_statute", "qa_client_docs",
+                    "recon_explain", "notice_reply", "dual_act"}
+        assert expected <= set(PROMPTS)
+        assert len({PROMPTS[k] for k in expected}) == len(expected)
+
+    def test_unknown_task_falls_back_to_default(self):
+        from app.generation import PROMPTS, _build_prompt
+        p = _build_prompt("q", [_rc()], task="no_such_task")
+        assert PROMPTS["default"] in p
+
+    def test_all_prompts_share_the_core_rules(self):
+        """Citation + no-invented-source discipline must hold on every task."""
+        from app.generation import PROMPTS
+        for name, prompt in PROMPTS.items():
+            assert "never invent a source" in prompt.lower(), name
+            assert "the answer was not found in the provided context" \
+                in prompt.lower(), name
+
+    def test_notice_reply_prompt_carries_the_fixed_skeleton(self):
+        from app.generation import PROMPTS
+        p = PROMPTS["notice_reply"]
+        for section in ("Legal Header", "Statement of Facts",
+                        "Point-wise Submissions", "Prayer",
+                        "Request for Personal Hearing", "75(4)"):
+            assert section in p, section
+
+    def test_task_selects_the_prompt_in_build(self):
+        from app.generation import PROMPTS, _build_prompt
+        p = _build_prompt("q", [_rc()], task="qa_statute")
+        assert PROMPTS["qa_statute"] in p
+        assert PROMPTS["notice_reply"] not in p
+
+    def test_source_label_carries_client_and_doc_type(self):
+        from app.generation import _source_label
+        r = _rc()
+        r.chunk.metadata.client = "Mehta Textiles Pvt Ltd"
+        r.chunk.metadata.doc_type = "invoice"
+        label = _source_label(r, 1)
+        assert "Mehta Textiles Pvt Ltd" in label
+        assert "Client document (invoice)" in label
+
+    def test_source_label_statute_class(self):
+        from app.generation import _source_label
+        r = _rc(entity="CGST Act")
+        r.chunk.metadata.doc_type = "statute"
+        assert "Statute" in _source_label(r, 1)
+
+
+# ── Claude provider (feature 03) ──────────────────────────────────────────────
+
+class TestClaudeProvider:
+    def _fake_anthropic(self, monkeypatch, stop_reason="end_turn",
+                        text="generated [Page 1]"):
+        """Stub the anthropic client factory — no SDK network calls."""
+        import app.generation as gen
+
+        class _Block:
+            type = "text"
+            def __init__(self, t): self.text = t
+
+        class _Resp:
+            def __init__(self):
+                self.stop_reason = stop_reason
+                self.content = [_Block(text)]
+
+        class _Messages:
+            def create(self, **kwargs):
+                self.last_kwargs = kwargs
+                return _Resp()
+
+        class _Client:
+            messages = _Messages()
+
+        client = _Client()
+        monkeypatch.setattr(gen, "_anthropic_client", lambda: client)
+        return client
+
+    def test_call_anthropic_returns_text(self, monkeypatch):
+        from app.generation import _call_anthropic
+        client = self._fake_anthropic(monkeypatch)
+        assert _call_anthropic("prompt") == "generated [Page 1]"
+        # single user turn, same shape as the other providers
+        msgs = client.messages.last_kwargs["messages"]
+        assert msgs == [{"role": "user", "content": "prompt"}]
+
+    def test_refusal_raises_so_the_fallback_handles_it(self, monkeypatch):
+        from app.generation import _call_anthropic
+        self._fake_anthropic(monkeypatch, stop_reason="refusal", text="")
+        with pytest.raises(RuntimeError):
+            _call_anthropic("prompt")
+
+    def test_claude_registered_in_dispatch(self):
+        from app.generation import _CALL, _STREAM
+        assert "claude" in _CALL and "claude" in _STREAM
+
+    def test_provider_resolution_prefers_explicit_setting(self, monkeypatch):
+        from app.config import cfg
+        monkeypatch.setattr(cfg, "generation_provider_setting", "claude")
+        monkeypatch.setattr(cfg, "anthropic_api_key", "test-key")
+        assert cfg.generation_provider == "claude"
+        assert cfg.generation_model == cfg.anthropic_model
+        assert cfg.generation_api_key == "test-key"
+
+    def test_claude_auto_selected_when_only_anthropic_key(self, monkeypatch):
+        from app.config import cfg
+        monkeypatch.setattr(cfg, "generation_provider_setting", None)
+        monkeypatch.setattr(cfg, "gemini_api_key", None)
+        monkeypatch.setattr(cfg, "groq_api_key", None)
+        monkeypatch.setattr(cfg, "anthropic_api_key", "test-key")
+        assert cfg.generation_provider == "claude"
+
+    def test_validate_refuses_claude_without_key(self, monkeypatch):
+        from app.config import Config
+        monkeypatch.setenv("GENERATION_PROVIDER", "claude")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        c = Config()
+        with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+            c.validate()

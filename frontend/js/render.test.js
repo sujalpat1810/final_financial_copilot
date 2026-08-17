@@ -90,7 +90,7 @@ test('an openable chip is a button carrying the ids the viewer needs', () => {
 });
 
 test('chips carry an accessible label, not just visual segments', () => {
-  assert.match(chipHtml(source()), /aria-label="Open source: Infosys, FY2024-25/);
+  assert.match(chipHtml(source()), /aria-label="Open source: Infosys, document, FY2024-25/);
 });
 
 // ── Inline citation linking ──────────────────────────────────────────────────

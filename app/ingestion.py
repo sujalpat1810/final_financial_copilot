@@ -289,14 +289,17 @@ def ingest_pdf(
     doc_name: str | None = None,
     entity: str | None = None,
     fiscal_year: str | None = None,
+    client: str | None = None,
+    doc_type: str | None = None,
+    act_version: str | None = None,
 ) -> tuple[str, list[Chunk]]:
     """
     Parse a PDF, chunk it, and return (doc_id, [Chunk, ...]).
     Callers are responsible for embedding + indexing the returned chunks.
 
-    entity and fiscal_year are operator-supplied and applied to every chunk.
-    They are not inferred from the document — see the note above
-    _detect_section_heading for why detection was removed.
+    entity, fiscal_year, client, doc_type and act_version are operator-supplied
+    and applied to every chunk.  They are not inferred from the document — see
+    the note above _detect_section_heading for why detection was removed.
 
     basis is detected per page from section structure (app/basis.py) and may be
     None for pages outside the financial statements, which is the honest value.
@@ -305,7 +308,12 @@ def ingest_pdf(
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     doc_name = doc_name or Path(pdf_path).stem
-    doc_id = hashlib.sha256(doc_name.encode()).hexdigest()[:16]
+    # doc_id is derived from client + name, not name alone: two clients can each
+    # legitimately have a "Balance Sheet FY2024-25", and with name-only ids the
+    # second one would be refused as a ContentConflict.  Documents with no client
+    # (statutes, firm knowledge) hash as "/name", which keeps their ids stable
+    # relative to each other.
+    doc_id = hashlib.sha256(f"{client or ''}/{doc_name}".encode()).hexdigest()[:16]
 
     # Check for a re-ingest BEFORE doing minutes of parsing and embedding.
     content_sha = file_sha256(pdf_path)
@@ -346,6 +354,9 @@ def ingest_pdf(
                     section_title=page_heading,
                     entity=entity,
                     fiscal_year=fiscal_year,
+                    client=client,
+                    doc_type=doc_type,
+                    act_version=act_version,
                     basis=basis,
                     chunk_index=chunk_idx,
                 ),
@@ -367,6 +378,9 @@ def ingest_pdf(
         "chunks": len(chunks),
         "entity": entity,
         "fiscal_year": fiscal_year,
+        "client": client,
+        "doc_type": doc_type,
+        "act_version": act_version,
         "standalone_pages": sum(1 for b in page_basis if b == "standalone"),
         "consolidated_pages": sum(1 for b in page_basis if b == "consolidated"),
         "file_path": str(stored_pdf),

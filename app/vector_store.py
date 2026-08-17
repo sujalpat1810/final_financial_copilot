@@ -26,6 +26,11 @@ from app.config import cfg
 from app.models import Chunk, ChunkMetadata, RetrievedChunk
 
 
+def _active_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
+    """Drop None values so callers can pass request fields through unpruned."""
+    return {k: v for k, v in (filters or {}).items() if v is not None}
+
+
 # ── Abstract interface ────────────────────────────────────────────────────────
 
 class VectorStore(ABC):
@@ -38,10 +43,18 @@ class VectorStore(ABC):
         self,
         query_embedding: list[float],
         top_k: int,
-        filter_doc_name: str | None = None,
-        filter_fiscal_year: str | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[RetrievedChunk]:
-        """Return top-k chunks ranked by cosine similarity."""
+        """
+        Return top-k chunks ranked by cosine similarity.
+
+        filters is a mapping of ChunkMetadata field name → required value, with
+        equality semantics ({"doc_name": ..., "client": ..., "act_version": ...}).
+        None/missing values in the dict are ignored, so callers can pass request
+        fields straight through without pruning.  A dict rather than named
+        parameters so adding a metadata dimension never changes this interface
+        again — that is exactly what happened with client/doc_type/act_version.
+        """
 
     @abstractmethod
     def list_documents(self) -> list[dict[str, Any]]:
@@ -98,11 +111,12 @@ class FAISSVectorStore(VectorStore):
         self,
         query_embedding: list[float],
         top_k: int,
-        filter_doc_name: str | None = None,
-        filter_fiscal_year: str | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[RetrievedChunk]:
         if self._index.ntotal == 0:
             return []
+
+        active = _active_filters(filters)
 
         qvec = np.array([query_embedding], dtype=np.float32)
         norm = np.linalg.norm(qvec)
@@ -120,9 +134,7 @@ class FAISSVectorStore(VectorStore):
             entry = self._meta[idx]
             meta = entry["metadata"]
 
-            if filter_doc_name and meta.get("doc_name") != filter_doc_name:
-                continue
-            if filter_fiscal_year and meta.get("fiscal_year") != filter_fiscal_year:
+            if any(meta.get(key) != value for key, value in active.items()):
                 continue
 
             results.append(RetrievedChunk(
@@ -149,6 +161,8 @@ class FAISSVectorStore(VectorStore):
                     "doc_id": did,
                     "doc_name": m["doc_name"],
                     "fiscal_year": m.get("fiscal_year"),
+                    "client": m.get("client"),
+                    "doc_type": m.get("doc_type"),
                     "chunk_count": 0,
                 }
             docs[did]["chunk_count"] += 1
@@ -225,14 +239,17 @@ class ChromaVectorStore(VectorStore):
         self,
         query_embedding: list[float],
         top_k: int,
-        filter_doc_name: str | None = None,
-        filter_fiscal_year: str | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[RetrievedChunk]:
-        where: dict[str, Any] = {}
-        if filter_doc_name:
-            where["doc_name"] = filter_doc_name
-        if filter_fiscal_year:
-            where["fiscal_year"] = filter_fiscal_year
+        active = _active_filters(filters)
+
+        # Chroma accepts a bare {key: value} for one condition but requires an
+        # explicit $and once there are two or more.
+        where: dict[str, Any] | None = None
+        if len(active) == 1:
+            where = dict(active)
+        elif len(active) > 1:
+            where = {"$and": [{k: v} for k, v in active.items()]}
 
         kwargs: dict[str, Any] = {
             "query_embeddings": [query_embedding],
@@ -278,6 +295,8 @@ class ChromaVectorStore(VectorStore):
                     "doc_id": did,
                     "doc_name": m["doc_name"],
                     "fiscal_year": m.get("fiscal_year"),
+                    "client": m.get("client"),
+                    "doc_type": m.get("doc_type"),
                     "chunk_count": 0,
                 }
             docs[did]["chunk_count"] += 1

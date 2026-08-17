@@ -39,10 +39,10 @@ from pathlib import Path
 # the consolidated statement pages rather than the Board's-report summary table:
 # the summary table carries no basis, so the obvious phrasing returns citations
 # labelled "Basis unknown" — correct, but it buries the provenance story.
-ANSWERABLE = "What was TCS consolidated revenue in FY2024-25?"
-# Wipro is not indexed. This must be refused by the entity gate (app/entities.py),
-# NOT answered from Infosys or TCS passages.
-REFUSED = "What was Wipro's revenue in FY2025?"
+ANSWERABLE = "What are the conditions for claiming input tax credit under section 16?"
+# Gupta Traders is not indexed. This must be refused by the entity gate
+# (app/entities.py), NOT answered from another client's passages.
+REFUSED = "What was Gupta Traders' turnover last year?"
 
 results: list[tuple[bool, str, str]] = []
 
@@ -199,8 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         r = read_last(page)
 
         check(r["abstained"] is True, "abstained on an unindexed company")
-        check("Wipro" in r["body"], "refusal names the company")
-        check("Infosys" in r["body"] or "TCS" in r["body"],
+        check("Gupta Traders" in r["body"], "refusal names the company")
+        check("Mehta" in r["body"] or "CGST" in r["body"] or "Sharma" in r["body"],
               "refusal states what IS indexed")
         check(r["chips"] == 0, "no citations offered for a refused question")
         # The gate runs before generation, so a refusal must be much faster than
@@ -232,6 +232,56 @@ def main(argv: list[str] | None = None) -> int:
             shot(page, "04-source")
         else:
             check(False, "an openable citation exists")
+
+        # ── The reconciliation agent runs end to end ─────────────────────────
+        print("\nreconciliation workflow")
+        page.click('.tab[data-view="recon"]')
+        try:
+            page.wait_for_selector("#reconRun", timeout=5000)
+            page.wait_for_function(
+                "document.querySelectorAll('#reconClient option').length >= 1",
+                timeout=5000)
+            page.click("#reconRun")
+            page.wait_for_selector("#reconResults:not([hidden])", timeout=tmo * 2)
+            rows = page.locator("#excTable tbody tr[data-exc-id]").count()
+            badges = page.locator(".vbadge").count()
+            check(rows > 0, "recon exceptions rendered", "%d rows" % rows)
+            check(badges >= 4, "verification badges rendered", "%d" % badges)
+            page.click("#excTable tbody tr[data-exc-id]")
+            page.wait_for_selector("#excDrawer:not([hidden])", timeout=5000)
+            explanation = (page.locator(".drawer-explain").text_content() or "").strip()
+            check(len(explanation) > 30, "exception explanation present")
+            log_href = page.get_attribute("#reconLog", "href")
+            log_ok = bool(log_href) and page.request.get(log_href).ok
+            check(log_ok, "run log downloadable")
+            shot(page, "05-recon")
+        except Exception as e:
+            check(False, "recon workflow", str(e)[:60])
+
+        # ── The notice workflow drafts behind the approval gate ──────────────
+        print("\nnotice workflow")
+        page.click('.tab[data-view="notices"]')
+        try:
+            page.wait_for_selector("#noticeAnalyze", timeout=5000)
+            page.wait_for_function(
+                "document.querySelectorAll('#noticeSelect option').length >= 1",
+                timeout=5000)
+            page.click("#noticeAnalyze")
+            page.wait_for_selector(".disc-card", timeout=tmo)
+            disc = page.locator(".disc-card").text_content() or ""
+            check("38,904" in disc, "extracted amount matches the notice")
+            page.wait_for_selector("#noticeReply:not([hidden])", timeout=tmo * 2)
+            draft = page.locator(".reply-body").text_content() or ""
+            sections_present = all(s in draft for s in
+                                   ("Legal Header", "Prayer"))
+            check(len(draft) > 300, "draft rendered", "%d chars" % len(draft))
+            check(sections_present, "draft carries the fixed skeleton")
+            gate = page.locator('[data-reply-action="approve"]').count()
+            check(gate == 1, "approval gate present, nothing auto-sent")
+            shot(page, "06-notice")
+        except Exception as e:
+            check(False, "notice workflow", str(e)[:60])
+
 
         # ── Nothing broke in the console ──────────────────────────────────────
         print("\nbrowser console")

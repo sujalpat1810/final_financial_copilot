@@ -112,7 +112,10 @@ def main(argv: list[str] | None = None) -> int:
     written = 0
     for i in range(0, len(chunks), args.batch):
         batch = chunks[i:i + args.batch]
-        vectors = embed.embed_documents([c.text for c in batch])
+        # indexed_text, not text: the provenance line is what makes statement
+        # pages reachable (see Chunk.indexed_text). Embedding bare text here
+        # silently destroyed that advantage on every backend switch.
+        vectors = embed.embed_documents([c.indexed_text for c in batch])
         store.add_chunks(batch, vectors)
         written += len(batch)
         pct = written / len(chunks) * 100

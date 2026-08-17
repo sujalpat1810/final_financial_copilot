@@ -110,7 +110,7 @@ def test_rebuilt_bm25_can_still_filter_by_document(ingested):
     index = BM25Index()
     index.build(ingestion.get_all_chunks())
 
-    results = index.search("revenue", top_k=10, filter_doc_name="TCS FY2024-25")
+    results = index.search("revenue", top_k=10, filters={"doc_name": "TCS FY2024-25"})
     assert results
     assert {r.chunk.metadata.doc_name for r in results} == {"TCS FY2024-25"}
 

@@ -1,0 +1,103 @@
+[
+  {
+    "file": "data/ca_dataset/cgst_s16_itc.pdf",
+    "doc_name": "CGST Act s.16 - Input tax credit",
+    "entity": "CGST Act",
+    "fiscal_year": "FY2025-26",
+    "doc_type": "statute"
+  },
+  {
+    "file": "data/ca_dataset/cgst_s61_rule99_scrutiny.pdf",
+    "doc_name": "CGST Act s.61 + Rule 99 - Scrutiny of returns",
+    "entity": "CGST Act",
+    "fiscal_year": "FY2025-26",
+    "doc_type": "statute"
+  },
+  {
+    "file": "data/ca_dataset/cgst_s73_74_75_demands.pdf",
+    "doc_name": "CGST Act s.73-75 - Demands and adjudication",
+    "entity": "CGST Act",
+    "fiscal_year": "FY2025-26",
+    "doc_type": "statute"
+  },
+  {
+    "file": "data/ca_dataset/itact_1961_s44ab.pdf",
+    "doc_name": "Income-tax Act 1961 s.44AB - Tax audit",
+    "entity": "Income-tax Act",
+    "fiscal_year": "FY2025-26",
+    "doc_type": "statute",
+    "act_version": "1961"
+  },
+  {
+    "file": "data/ca_dataset/itact_2025_s63.pdf",
+    "doc_name": "Income-tax Act 2025 s.63 - Tax audit",
+    "entity": "Income-tax Act",
+    "fiscal_year": "FY2025-26",
+    "doc_type": "statute",
+    "act_version": "2025"
+  },
+  {
+    "file": "data/ca_dataset/asmt10_mehta.pdf",
+    "doc_name": "ASMT-10 scrutiny notice - Dec 2025",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "notice"
+  },
+  {
+    "file": "data/ca_dataset/mehta_financials_fy2425.pdf",
+    "doc_name": "Financial statements FY2024-25",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2024-25",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "financials"
+  },
+  {
+    "file": "data/ca_dataset/invoice_acm_1041.pdf",
+    "doc_name": "Purchase invoice ACM/2025/1041",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "invoice"
+  },
+  {
+    "file": "data/ca_dataset/invoice_jsy_0512.pdf",
+    "doc_name": "Purchase invoice JSY/2025/0512",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "invoice"
+  },
+  {
+    "file": "data/ca_dataset/invoice_omt_0455.pdf",
+    "doc_name": "Purchase invoice OMT/2025/0455",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "invoice"
+  },
+  {
+    "file": "data/ca_dataset/invoice_sps_0233.pdf",
+    "doc_name": "Purchase invoice SPS/2025/0233",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "invoice"
+  },
+  {
+    "file": "data/ca_dataset/invoice_mpk_0733.pdf",
+    "doc_name": "Purchase invoice MPK/2025/0733",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "invoice"
+  },
+  {
+    "file": "data/ca_dataset/invoice_jsy_0505.pdf",
+    "doc_name": "Purchase invoice JSY/2025/0505",
+    "entity": "Mehta Textiles Pvt Ltd",
+    "fiscal_year": "FY2025-26",
+    "client": "Mehta Textiles Pvt Ltd",
+    "doc_type": "invoice"
+  }
+]

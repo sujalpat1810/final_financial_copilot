@@ -72,7 +72,7 @@ def test_bm25_filter_by_doc_name():
     bm25 = BM25Index()
     bm25.build(chunks)
 
-    results = bm25.search("revenue earnings", top_k=5, filter_doc_name="Alpha Corp")
+    results = bm25.search("revenue earnings", top_k=5, filters={"doc_name": "Alpha Corp"})
     assert all(r.chunk.metadata.doc_name == "Alpha Corp" for r in results)
     assert len(results) == 1
 
@@ -85,7 +85,7 @@ def test_bm25_filter_by_fiscal_year():
     bm25 = BM25Index()
     bm25.build(chunks)
 
-    results = bm25.search("revenue", top_k=5, filter_fiscal_year="FY2023")
+    results = bm25.search("revenue", top_k=5, filters={"fiscal_year": "FY2023"})
     assert all(r.chunk.metadata.fiscal_year == "FY2023" for r in results)
 
 
@@ -148,3 +148,83 @@ def test_merge_dedup():
     assert merged["shared"].bm25_score == 5.2
     assert merged["v_only"].retrieval_source == "vector"
     assert merged["b_only"].retrieval_source == "bm25"
+
+
+# ── Generic filters dict (client / doc_type / act_version) ────────────────────
+
+def _make_client_chunk(chunk_id: str, text: str, client: str | None = None,
+                       doc_type: str | None = None,
+                       act_version: str | None = None) -> Chunk:
+    return Chunk(
+        chunk_id=chunk_id,
+        text=text,
+        metadata=ChunkMetadata(
+            chunk_id=chunk_id,
+            doc_id="test_doc",
+            doc_name="doc",
+            page_number=1,
+            client=client,
+            doc_type=doc_type,
+            act_version=act_version,
+        ),
+    )
+
+
+def test_bm25_filter_by_client():
+    chunks = [
+        _make_client_chunk("c1", "Purchase invoice for cotton yarn supplies.",
+                           client="Mehta Textiles Pvt Ltd"),
+        _make_client_chunk("c2", "Purchase invoice for electronic components.",
+                           client="Sharma Electronics Pvt Ltd"),
+    ]
+    bm25 = BM25Index()
+    bm25.build(chunks)
+
+    results = bm25.search("purchase invoice", top_k=5,
+                          filters={"client": "Mehta Textiles Pvt Ltd"})
+    assert len(results) == 1
+    assert results[0].chunk.chunk_id == "c1"
+
+
+def test_bm25_filter_by_act_version():
+    chunks = [
+        _make_client_chunk("c1", "Disallowance of cash expenditure over the limit.",
+                           doc_type="statute", act_version="1961"),
+        _make_client_chunk("c2", "Disallowance of cash expenditure over the limit.",
+                           doc_type="statute", act_version="2025"),
+    ]
+    bm25 = BM25Index()
+    bm25.build(chunks)
+
+    results = bm25.search("cash expenditure disallowance", top_k=5,
+                          filters={"act_version": "2025"})
+    assert len(results) == 1
+    assert results[0].chunk.metadata.act_version == "2025"
+
+
+def test_bm25_filters_none_values_ignored():
+    """Request fields pass through unpruned — None must not filter anything out."""
+    chunks = [_make_client_chunk("c1", "Some revenue text here.")]
+    bm25 = BM25Index()
+    bm25.build(chunks)
+
+    results = bm25.search("revenue", top_k=5,
+                          filters={"client": None, "doc_type": None})
+    assert len(results) == 1
+
+
+def test_bm25_multiple_filters_are_anded():
+    chunks = [
+        _make_client_chunk("c1", "Invoice for goods.", client="Mehta Textiles Pvt Ltd",
+                           doc_type="invoice"),
+        _make_client_chunk("c2", "Invoice for goods.", client="Mehta Textiles Pvt Ltd",
+                           doc_type="register"),
+    ]
+    bm25 = BM25Index()
+    bm25.build(chunks)
+
+    results = bm25.search("invoice goods", top_k=5,
+                          filters={"client": "Mehta Textiles Pvt Ltd",
+                                   "doc_type": "invoice"})
+    assert len(results) == 1
+    assert results[0].chunk.metadata.doc_type == "invoice"

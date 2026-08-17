@@ -113,11 +113,17 @@ class BM25Index:
         self,
         query: str,
         top_k: int,
-        filter_doc_name: str | None = None,
-        filter_fiscal_year: str | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[RetrievedChunk]:
+        """
+        filters: ChunkMetadata field name → required value, equality semantics,
+        None values ignored — same contract as VectorStore.search so the hybrid
+        retriever passes one dict to both lanes.
+        """
         if not self._bm25 or not self._chunk_ids:
             return []
+
+        active = {k: v for k, v in (filters or {}).items() if v is not None}
 
         with self._lock:
             tokens = _tokenise(query)
@@ -134,9 +140,10 @@ class BM25Index:
                 # that happen to share vocabulary with the entire corpus.
                 continue
             chunk = self._chunks[idx]
-            if filter_doc_name and chunk.metadata.doc_name != filter_doc_name:
-                continue
-            if filter_fiscal_year and chunk.metadata.fiscal_year != filter_fiscal_year:
+            if any(
+                getattr(chunk.metadata, key, None) != value
+                for key, value in active.items()
+            ):
                 continue
             results.append(RetrievedChunk(
                 chunk=chunk,
@@ -239,10 +246,15 @@ class HybridRetriever:
         self,
         query: str,
         top_n: int | None = None,
-        filter_doc_name: str | None = None,
-        filter_fiscal_year: str | None = None,
+        filters: dict[str, Any] | None = None,
         filter_section_type: str | None = None,
     ) -> list[RetrievedChunk]:
+        """
+        filters: ChunkMetadata field name → required value, passed unchanged to
+        both retrieval lanes (equality; None values ignored).  section_type stays
+        a separate parameter because its semantics differ — it is a substring
+        match on section_title, applied post-merge.
+        """
         top_n = top_n or cfg.final_top_n
 
         # Step 1 — embed query
@@ -252,16 +264,14 @@ class HybridRetriever:
         vector_results = self._vs.search(
             q_embedding,
             top_k=cfg.vector_top_k,
-            filter_doc_name=filter_doc_name,
-            filter_fiscal_year=filter_fiscal_year,
+            filters=filters,
         )
 
         # Step 3 — BM25 search
         bm25_results = self._bm25.search(
             query,
             top_k=cfg.bm25_top_k,
-            filter_doc_name=filter_doc_name,
-            filter_fiscal_year=filter_fiscal_year,
+            filters=filters,
         )
 
         # Step 4 — merge + dedupe

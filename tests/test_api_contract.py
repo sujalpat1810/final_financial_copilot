@@ -20,11 +20,21 @@ from pathlib import Path
 import pytest
 
 from app.models import (
+    BooksRow,
+    ClientRecord,
     DocumentInfo,
     DocumentListResponse,
+    Gstr2bRow,
     HealthResponse,
     IngestResponse,
     QueryResponse,
+    ReconChecks,
+    ReconException,
+    ReconRunInfo,
+    ReconStats,
+    NoticeDiscrepancy,
+    NoticeListItem,
+    NoticeReply,
     SourceCitation,
 )
 
@@ -33,7 +43,9 @@ JS_DIR = Path(__file__).resolve().parent.parent / "frontend" / "js"
 # Every field the API can put on the wire.
 API_FIELDS: set[str] = set()
 for model in (QueryResponse, SourceCitation, DocumentInfo, DocumentListResponse,
-              HealthResponse, IngestResponse):
+              HealthResponse, IngestResponse, ReconChecks, ReconStats, BooksRow,
+              Gstr2bRow, ReconException, ReconRunInfo, ClientRecord,
+              NoticeDiscrepancy, NoticeReply, NoticeListItem):
     API_FIELDS |= set(model.model_fields)
 
 # snake_case property accesses that are not API fields.

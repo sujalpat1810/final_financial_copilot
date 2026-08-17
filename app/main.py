@@ -34,6 +34,7 @@ import json
 import re
 import time
 import logging
+import uuid
 
 # Load .env file if present (must happen before config.py reads os.environ)
 try:
@@ -122,7 +123,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:  # noqa: BLE001 — a cold first query beats no service
             log.warning("Warmup retrieval failed (%s); serving anyway.", e)
 
-    log.info("Financial Copilot ready.")
+    # Seed the structured store (clients, deadlines) from the dataset. Idempotent,
+    # and a missing seed directory is a warning, not a refusal to start.
+    try:
+        from app.structured import seed_from_dataset
+        counts = seed_from_dataset()
+        log.info("Structured store seeded: %s", counts)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Structured store seeding failed (%s); recon endpoints may 404.", e)
+
+    log.info("Practice Copilot ready.")
     yield
     _state.clear()
 
@@ -134,6 +144,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+from app.routes_recon import router as recon_router
+from app.routes_casework import router as casework_router
+app.include_router(recon_router)
+app.include_router(casework_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -147,10 +162,13 @@ app.add_middleware(
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(
-    file: UploadFile = File(..., description="PDF annual report"),
+    file: UploadFile = File(..., description="PDF document"),
     doc_name: str | None = Form(None, description="Override document name"),
-    entity: str = Form(..., description="Reporting entity, e.g. 'Infosys'"),
-    fiscal_year: str = Form(..., description="Fiscal year of the report, e.g. 'FY2024-25'"),
+    entity: str = Form(..., description="Reporting entity, e.g. 'Infosys' or 'CGST Act'"),
+    fiscal_year: str = Form(..., description="Fiscal year, e.g. 'FY2024-25'"),
+    client: str | None = Form(None, description="Client engagement this document belongs to"),
+    doc_type: str | None = Form(None, description="invoice | notice | financials | statute | register"),
+    act_version: str | None = Form(None, description='"1961" or "2025" for income-tax material'),
 ):
     """
     Parse a PDF, chunk it, and add it to both vector and BM25 indexes.
@@ -159,7 +177,9 @@ async def ingest(
     document: an annual report is full of comparative columns, so any heuristic
     that reads a year off the page is guessing.  Getting these wrong attributes
     a figure to the wrong company or year, which is the failure this product
-    exists to prevent — so they are asked for rather than assumed.
+    exists to prevent — so they are asked for rather than assumed.  client,
+    doc_type and act_version follow the same operator-supplied rule and are
+    optional: statutes and firm knowledge have no client.
     """
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
@@ -168,9 +188,13 @@ async def ingest(
     fiscal_year = fiscal_year.strip()
     if not entity or not fiscal_year:
         raise HTTPException(status_code=400, detail="entity and fiscal_year must not be blank.")
+    client = client.strip() or None if client else None
+    doc_type = doc_type.strip() or None if doc_type else None
+    act_version = act_version.strip() or None if act_version else None
 
-    # Save upload to a temp file
-    tmp_path = Path("data") / "tmp_upload.pdf"
+    # Save upload to a unique temp file — a fixed name would let two concurrent
+    # uploads overwrite each other's bytes mid-parse.
+    tmp_path = Path("data") / f"tmp_upload_{uuid.uuid4().hex}.pdf"
     tmp_path.parent.mkdir(parents=True, exist_ok=True)
     content = await file.read()
     tmp_path.write_bytes(content)
@@ -186,6 +210,9 @@ async def ingest(
             doc_name or Path(file.filename).stem,
             entity,
             fiscal_year,
+            client,
+            doc_type,
+            act_version,
         )
     except (AlreadyIndexed, ContentConflict) as e:
         # 409, not 422: the request is well-formed, it conflicts with existing state.
@@ -250,6 +277,9 @@ def _to_citations(results) -> list[SourceCitation]:
             chunk_id=m.chunk_id,
             entity=m.entity,
             basis=m.basis,
+            client=m.client,
+            doc_type=m.doc_type,
+            act_version=m.act_version,
             rerank_score=r.rerank_score,
             relevance=relevance(r.rerank_score),
             is_table="[TABLE]" in r.chunk.text,
@@ -293,13 +323,14 @@ async def _prepare(req: QueryRequest) -> _Prepared:
     indexed_entities = sorted({d.entity for d in docs if d.entity})
     foreign = foreign_entities(req.question, set(indexed_entities))
 
+    # run_in_threadpool: retrieve() is ~2 s of CPU-bound cross-encoder inference.
+    # Left on the event loop it blocks every other request for its whole duration.
     t0 = time.perf_counter()
     results = await run_in_threadpool(
         retriever.retrieve,
         query=req.question,
         top_n=req.top_n,
-        filter_doc_name=req.doc_name,
-        filter_fiscal_year=req.fiscal_year,
+        filters=req.retrieval_filters(),
         filter_section_type=req.section_type,
     )
     retrieval_ms = (time.perf_counter() - t0) * 1000
@@ -313,53 +344,40 @@ async def _prepare(req: QueryRequest) -> _Prepared:
                      documents_searched, chunks_searched)
 
 
+
+def _task_for(req: QueryRequest) -> str:
+    """
+    Which prompt the generator should answer with, derived from the request's
+    metadata filters — deterministic, never inferred from the question text.
+    """
+    if req.act_version:
+        return "dual_act"
+    if req.doc_type == "statute":
+        return "qa_statute"
+    if req.client:
+        return "qa_client_docs"
+    return "default"
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest):
     """Run hybrid retrieval + reranking, then generate — unless evidence is too thin."""
-    retriever: HybridRetriever = _state["retriever"]
-    vs = _state.get("vs")
-
-    docs = list_documents()
-    chunks_searched = vs.get_chunk_count() if vs else 0
-    documents_searched = len(docs)
-
-    # Which companies the index actually covers, read per request rather than
-    # cached: ingesting a new entity must stop the gate below firing on it
-    # without a restart.
-    indexed_entities = sorted({d.entity for d in docs if d.entity})
-    foreign = foreign_entities(req.question, set(indexed_entities))
-
-    # ── Retrieval ─────────────────────────────────────────────────────────────
-    # run_in_threadpool, as /ingest already does: retrieve() is ~2 s of CPU-bound
-    # cross-encoder inference. Left on the event loop it blocks every other
-    # request for its whole duration — a second question, /documents, and the PDF
-    # a citation just tried to open all queue behind it, so one person asking a
-    # question freezes the page for everyone else.
-    t0 = time.perf_counter()
-    results = await run_in_threadpool(
-        retriever.retrieve,
-        query=req.question,
-        top_n=req.top_n,
-        filter_doc_name=req.doc_name,
-        filter_fiscal_year=req.fiscal_year,
-        filter_section_type=req.section_type,
-    )
-    retrieval_ms = (time.perf_counter() - t0) * 1000
+    # All retrieval + the abstention decision live in _prepare(), shared with
+    # /query/stream. This endpoint previously duplicated that block inline —
+    # the exact drift the _prepare docstring warns against.
+    prep = await _prepare(req)
+    results = prep.results
+    assessment = prep.assessment
+    retrieval_ms = prep.retrieval_ms
 
     # ── Abstention gate ───────────────────────────────────────────────────────
     # Assessed BEFORE generation, and generation is skipped entirely when the
     # evidence is below the floor — nothing is generated and then thrown away.
     # An empty result set falls out of this naturally: assess([]) is INSUFFICIENT.
-    # Retrieval still runs when `foreign` is non-empty: the near-miss chunks are
-    # what the insufficient-evidence card shows, and they are how a reader sees
-    # that the tool searched the right documents and simply lacks the company.
-    # The expensive half — generation — is what the gate skips.
-    assessment = assess(
-        [r.rerank_score for r in results],
-        foreign_entities=foreign,
-        indexed_entities=indexed_entities,
-    )
-
+    # Retrieval still runs when foreign entities are named: the near-miss chunks
+    # are what the insufficient-evidence card shows, and they are how a reader
+    # sees that the tool searched the right documents and simply lacks the
+    # company. The expensive half — generation — is what the gate skips.
     if assessment.abstained:
         log.info(
             "query='%s' ABSTAINED retrieval=%.0fms (%s)",
@@ -377,8 +395,8 @@ async def query(req: QueryRequest):
             confidence_reason=assessment.reason,
             abstained=True,
             abstention_reason=assessment.abstention_reason,
-            documents_searched=documents_searched,
-            chunks_searched=chunks_searched,
+            documents_searched=prep.documents_searched,
+            chunks_searched=prep.chunks_searched,
         )
 
     # ── Generation ────────────────────────────────────────────────────────────
@@ -386,7 +404,7 @@ async def query(req: QueryRequest):
     # plus up to 3 s of time.sleep() if a transient failure is retried.
     t1 = time.perf_counter()
     answer, answer_source = await run_in_threadpool(
-        generate_answer, req.question, results,
+        generate_answer, req.question, results, _task_for(req),
     )
     generation_ms = (time.perf_counter() - t1) * 1000
 
@@ -407,8 +425,8 @@ async def query(req: QueryRequest):
         confidence=assessment.level.value,
         confidence_reason=assessment.reason,
         abstained=False,
-        documents_searched=documents_searched,
-        chunks_searched=chunks_searched,
+        documents_searched=prep.documents_searched,
+        chunks_searched=prep.chunks_searched,
     )
 
 
@@ -488,7 +506,7 @@ async def query_stream(req: QueryRequest):
             # thread; iterate_in_threadpool hands each yielded item back to the
             # event loop without the generator ever running on it.
             async for kind, payload in iterate_in_threadpool(
-                stream_answer(req.question, prep.results)
+                stream_answer(req.question, prep.results, _task_for(req))
             ):
                 if kind == "delta":
                     yield _sse("delta", {"text": payload})

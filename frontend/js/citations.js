@@ -18,7 +18,7 @@
  * rendered as a citation that goes nowhere.
  */
 
-import { basisShort, escapeHtml } from './format.js';
+import { basisShort, docTypeLabel, escapeHtml } from './format.js';
 
 /** Matches the inline markers the prompt asks the model to emit. */
 const MARKER = /\[Page\s+(\d+)\]/gi;
@@ -34,20 +34,35 @@ export function chipHtml(source, { interactive = true, pageOnly = false } = {}) 
   const tag = canOpen ? 'button' : 'span';
   const classes = `prov${canOpen ? '' : ' inert'}`;
 
+  // The leading segment names WHOSE document this is: the client for client
+  // documents, the entity (e.g. "CGST Act") for firm knowledge. The type
+  // segment replaces the old basis segment; basis still appears, but only for
+  // financial statements, where the distinction exists.
+  const owner = source.client || source.entity || 'Source ?';
+  // Basis stays visible for financial statements AND for legacy documents with
+  // no doc_type (annual reports) — there an undetermined basis is a stated
+  // unknown the reader must see. It is only dropped for types where the
+  // distinction does not exist (invoices, notices, statutes).
+  const showBasis = !source.doc_type || source.doc_type === 'financials'
+    || Boolean(source.basis);
   const basisClass = source.basis ? '' : ' unknown';
   const parts = pageOnly
     ? [`<span class="p-pg">p.${escapeHtml(source.page_number)}</span>`]
     : [
-      `<span class="p-ent">${escapeHtml(source.entity || 'Entity ?')}</span>`,
+      `<span class="p-client">${escapeHtml(owner)}</span>`,
+      `<span class="p-doctype">${escapeHtml(docTypeLabel(source.doc_type))}</span>`,
       `<span class="p-fy">${escapeHtml(source.fiscal_year || 'FY ?')}</span>`,
-      `<span class="p-bas${basisClass}">${escapeHtml(basisShort(source.basis))}</span>`,
+      ...(showBasis
+        ? [`<span class="p-bas${basisClass}">${escapeHtml(basisShort(source.basis))}</span>`]
+        : []),
       `<span class="p-pg">p.${escapeHtml(source.page_number)}</span>`,
     ];
 
   const label = [
-    source.entity || 'Unknown entity',
+    owner,
+    docTypeLabel(source.doc_type).toLowerCase(),
     source.fiscal_year || 'unknown fiscal year',
-    basisShort(source.basis).toLowerCase(),
+    ...(showBasis ? [basisShort(source.basis).toLowerCase()] : []),
     `page ${source.page_number}`,
   ].join(', ');
 

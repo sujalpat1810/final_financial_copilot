@@ -1,0 +1,24 @@
+{
+  "client": "Mehta Textiles Pvt Ltd",
+  "period": "2025-12",
+  "books_rows": 40,
+  "gstr2b_rows": 39,
+  "exact_matches": 30,
+  "amendment_resolved": 1,
+  "fuzzy_matches": 2,
+  "exceptions": {
+    "in_2b_not_books": 3,
+    "in_books_not_2b": 4,
+    "amount_mismatch": 2,
+    "gstin_mismatch": 2,
+    "duplicate_in_books": 1
+  },
+  "itc_at_risk": 38904.0,
+  "planted": {
+    "duplicate_invoice_no": "ACM/2025/1041",
+    "amendment_invoice_no": "PMS/2025/0199",
+    "unknown_supplier": "ZENITH METALS",
+    "invalid_gstin_invoice_pdf": "invoice_mpk_0733.pdf",
+    "bad_total_invoice_pdf": "invoice_jsy_0505.pdf"
+  }
+}

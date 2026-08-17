@@ -7,10 +7,12 @@
 
 import * as api from './api.js';
 import { onCitationActivate } from './citations.js';
-import { basisLabel, escapeHtml, formatCount } from './format.js';
+import { basisLabel, docTypeLabel, escapeHtml, formatCount } from './format.js';
 import { renderError, renderPending, renderResponse } from './render.js';
 import { hideWelcome, scrollToLatest, toast } from './ui.js';
 import { initViewer, openSource } from './viewer.js';
+import './recon.js';
+import './notice.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -21,6 +23,7 @@ export const state = {
   // still find the excerpt the viewer needs to locate on the page.
   sourcesByChunkId: new Map(),
   docFilter: null,     // doc_name to restrict retrieval to, or null
+  clientFilter: null,  // client to restrict retrieval to, or null
   busy: false,
 };
 
@@ -93,6 +96,7 @@ async function refreshDocuments() {
   state.documents = new Map(payload.documents.map((d) => [d.doc_id, d]));
   el('statDocs').textContent = formatCount(payload.total);
   renderDocumentList(payload.documents);
+  renderClientFilter(payload.documents);
 
   // Seeds are only useful once something is indexed; before that the welcome
   // text guides to upload instead.
@@ -112,15 +116,15 @@ function renderDocumentList(documents) {
   }
 
   list.innerHTML = documents.map((d) => {
+    // Basis only matters for financial statements; for everything else in a CA
+    // corpus (invoices, notices, statutes) "no basis" is the normal state, not
+    // a warning worth shouting about.
     const detected = d.standalone_pages + d.consolidated_pages;
-    // A document with no detected basis will qualify every figure it produces
-    // as undetermined. Say so here rather than letting it surprise the reader
-    // inside an answer.
-    const basisNote = detected === 0
+    const basisNote = d.doc_type === 'financials' && detected === 0
       ? '<span class="doc-warn">no basis detected</span>'
-      : `<span>${formatCount(d.standalone_pages)} SA · `
-        + `${formatCount(d.consolidated_pages)} CO</span>`;
+      : '';
     const noFile = d.has_file ? '' : '<span class="doc-warn">no PDF</span>';
+    const owner = d.client || d.entity || '—';
 
     return `
       <button class="doc" data-doc-id="${escapeHtml(d.doc_id)}"
@@ -128,7 +132,8 @@ function renderDocumentList(documents) {
               aria-pressed="${state.docFilter === d.doc_name}">
         <div class="doc-n">${escapeHtml(d.doc_name)}</div>
         <div class="doc-m">
-          <span>${escapeHtml(d.entity || '—')}</span>
+          <span>${escapeHtml(owner)}</span>
+          <span>${escapeHtml(docTypeLabel(d.doc_type))}</span>
           <span>${escapeHtml(d.fiscal_year || '—')}</span>
         </div>
         <div class="doc-m">
@@ -141,6 +146,33 @@ function renderDocumentList(documents) {
 
   list.querySelectorAll('.doc').forEach((button) => {
     button.addEventListener('click', () => toggleDocFilter(button.dataset.docName));
+  });
+}
+
+/**
+ * The client filter pins retrieval to one client's documents. Options are
+ * derived from the corpus, so ingesting a new client adds them with no code
+ * change; the empty option searches everything including firm knowledge.
+ */
+function renderClientFilter(documents) {
+  const select = el('clientFilter');
+  if (!select) return;
+  const clients = [...new Set(documents.map((d) => d.client).filter(Boolean))].sort();
+  const current = state.clientFilter || '';
+  select.innerHTML = '<option value="">All clients &amp; firm knowledge</option>'
+    + clients.map((c) =>
+      `<option value="${escapeHtml(c)}"${c === current ? ' selected' : ''}>${escapeHtml(c)}</option>`,
+    ).join('');
+}
+
+function initClientFilter() {
+  const select = el('clientFilter');
+  if (!select) return;
+  select.addEventListener('change', () => {
+    state.clientFilter = select.value || null;
+    toast(state.clientFilter
+      ? `Restricted to ${state.clientFilter}.`
+      : 'Searching all clients and firm knowledge.');
   });
 }
 
@@ -161,19 +193,17 @@ function toggleDocFilter(docName) {
  * correct lookups.
  */
 const SEEDS = [
-  { q: 'What was Infosys consolidated revenue in FY2024-25?' },
-  { q: 'How did Infosys revenue change from FY2024-25 to FY2025-26?' },
-  { q: 'Compare Infosys and TCS revenue for FY2024-25' },
-  { q: 'Who audited Infosys and was the opinion unqualified?' },
-  { q: 'What contingent liabilities are disclosed?' },
-  { q: 'List related party transactions' },
-  // The two below are marked so they read as deliberate rather than careless.
-  // Their tooltips describe the question from the reader's side — the earlier
-  // wording ("must not pick one silently", "must abstain") was a note to
-  // ourselves about expected behaviour, and read as backstage crib notes to
-  // anyone hovering them in front of a client.
-  { q: 'What was revenue?', trap: 'Ambiguous on purpose — no company, year or basis given' },
-  { q: "What was Wipro's revenue in FY2025?", trap: 'A company outside the indexed corpus' },
+  { q: 'What are the conditions for claiming input tax credit under section 16?' },
+  { q: 'What does the scrutiny notice for Mehta Textiles allege?' },
+  { q: "What was Mehta Textiles' revenue in FY2024-25?" },
+  { q: 'How should a taxpayer respond to an ASMT-10 notice?' },
+  { q: 'When can proceedings under section 73 or 74 be initiated?' },
+  { q: 'When is a tax audit of business accounts required?',
+    compare: true,
+    trap: 'Try with "Compare 1961 ↔ 2025 Act" on — the same provision under both numbering systems' },
+  // Marked so it reads as deliberate rather than careless. The tooltip
+  // describes the question from the reader's side, not as a backstage note.
+  { q: "What was Gupta Traders' turnover last year?", trap: 'A client whose documents are not indexed' },
 ];
 
 function renderSeeds() {
@@ -187,6 +217,7 @@ function renderSeeds() {
     button.addEventListener('click', () => {
       const input = el('queryInput');
       input.value = SEEDS[i].q;
+      if (SEEDS[i].compare) el('compareActs').checked = true;
       resizeInput();
       updateAskEnabled();
       input.focus();
@@ -235,6 +266,11 @@ async function submitQuery() {
   updateAskEnabled();
   hideWelcome();
 
+  if (el('compareActs')?.checked) {
+    await submitCompare(question);
+    return;
+  }
+
   const stream = el('streamInner');
   // renderPending drives a stage/elapsed ticker, so it hands back a stop() that
   // must run on every exit path — an interval left running after the card is
@@ -262,7 +298,7 @@ async function submitQuery() {
     let abstained = null;
 
     try {
-      await api.queryStream({ question, docName: state.docFilter }, {
+      await api.queryStream({ question, docName: state.docFilter, client: state.clientFilter }, {
         onMeta: (m) => {
           meta = m;
           rememberSources(m.sources);
@@ -279,7 +315,7 @@ async function submitQuery() {
       // that buffers, or a dropped connection should cost the reader a slower
       // answer, not an error. Fall back to the blocking endpoint once.
       console.warn('[query] streaming failed, falling back', streamError);
-      const response = await api.query({ question, docName: state.docFilter });
+      const response = await api.query({ question, docName: state.docFilter, client: state.clientFilter });
       stopPending();
       pending.remove();
       rememberSources(response.sources);
@@ -336,6 +372,69 @@ async function submitQuery() {
     state.busy = false;
     updateAskEnabled();
     scrollToLatest();
+    input.focus();
+  }
+}
+
+/**
+ * The dual-Act beat: the same question answered twice, once per Act version,
+ * rendered side by side. Two SEQUENTIAL blocking queries — free-tier rate
+ * limits make parallel calls a risk the demo does not need, and the second
+ * column appearing a few seconds after the first reads fine.
+ *
+ * Each column is metadata-pinned: act_version filters retrieval to that Act's
+ * extracts, and the server picks the dual_act prompt from the same field, so
+ * a column structurally cannot cite the other Act.
+ */
+async function submitCompare(question) {
+  const stream = el('streamInner');
+  const wrap = document.createElement('div');
+  wrap.className = 'compare-block';
+  wrap.innerHTML = `
+    <h2 class="q">${escapeHtml(question)}</h2>
+    <div class="compare-grid">
+      <div class="compare-col" data-act="1961">
+        <div class="compare-hd">Income-tax Act, 1961 <span class="compare-note">AY 2026-27 filings</span></div>
+        <div class="compare-body"><div class="compare-wait">Answering under the 1961 Act…</div></div>
+      </div>
+      <div class="compare-col" data-act="2025">
+        <div class="compare-hd">Income-tax Act, 2025 <span class="compare-note">Tax Year 2026-27 onwards</span></div>
+        <div class="compare-body"><div class="compare-wait">Waiting…</div></div>
+      </div>
+    </div>`;
+  stream.appendChild(wrap);
+  scrollToLatest();
+
+  const input = el('queryInput');
+  input.value = '';
+  resizeInput();
+
+  const rememberSources = (sources) => {
+    for (const source of sources || []) {
+      if (source.chunk_id) state.sourcesByChunkId.set(source.chunk_id, source);
+    }
+  };
+
+  try {
+    for (const act of ['1961', '2025']) {
+      const body = wrap.querySelector(`.compare-col[data-act="${act}"] .compare-body`);
+      body.innerHTML = `<div class="compare-wait">Answering under the ${act} Act…</div>`;
+      try {
+        const response = await api.query({ question, actVersion: act });
+        rememberSources(response.sources);
+        body.innerHTML = '';
+        renderResponse(body, { ...response, question: '' },
+          { openableDocIds: openableDocIds() });
+        // The per-column card repeats an empty question heading; drop it.
+        body.querySelector('.q')?.remove();
+      } catch (e) {
+        body.innerHTML = `<div class="compare-wait">${escapeHtml(e.message)}</div>`;
+      }
+      scrollToLatest();
+    }
+  } finally {
+    state.busy = false;
+    updateAskEnabled();
     input.focus();
   }
 }
@@ -421,6 +520,9 @@ async function startUpload(file) {
       entity,
       fiscalYear,
       docName: el('docNameInput').value.trim(),
+      client: el('clientInput').value.trim(),
+      docType: el('docTypeInput').value,
+      actVersion: el('actVersionInput').value,
       onProgress: (fraction) => {
         fill.style.width = `${Math.round(fraction * 100)}%`;
         if (fraction >= 1) {
@@ -438,6 +540,9 @@ async function startUpload(file) {
           + `from ${formatCount(result.pages_processed)} pages.`, 'success');
     el('fileInput').value = '';
     el('docNameInput').value = '';
+    el('clientInput').value = '';
+    el('docTypeInput').value = '';
+    el('actVersionInput').value = '';
     await Promise.all([refreshDocuments(), refreshHealth()]);
   } catch (e) {
     toast(e.message, 'error');
@@ -497,11 +602,50 @@ function initCitations() {
   });
 }
 
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Plain show/hide view switching — three panels, no router. The Reconcile and
+ * Notices panels are populated by their own modules (js/recon.js, js/notice.js)
+ * the first time they are shown.
+ */
+function initTabs() {
+  const tabs = el('tabs');
+  if (!tabs) return;
+  const views = {
+    ask: el('view-ask'),
+    recon: el('view-recon'),
+    notices: el('view-notices'),
+  };
+  tabs.addEventListener('click', (event) => {
+    const button = event.target.closest('.tab');
+    if (!button) return;
+    const target = button.dataset.view;
+    tabs.querySelectorAll('.tab').forEach((t) => {
+      const active = t === button;
+      t.classList.toggle('active', active);
+      if (active) t.setAttribute('aria-current', 'page');
+      else t.removeAttribute('aria-current');
+    });
+    Object.entries(views).forEach(([name, view]) => {
+      if (view) view.hidden = name !== target;
+    });
+    // The source panel is a fixed overlay shared by all views; left open
+    // across a switch it hangs over the new view's controls (and blocked a
+    // button outright in smoke testing). Close it on every switch.
+    const panel = el('panel');
+    if (panel && !panel.hidden) el('panelClose')?.click();
+    document.dispatchEvent(new CustomEvent('viewshown', { detail: { view: target } }));
+  });
+}
+
 function init() {
   initComposer();
   initUpload();
   initAbout();
   initCitations();
+  initClientFilter();
+  initTabs();
   // watchHealth polls until the service answers, so opening the page mid-startup
   // recovers on its own instead of showing a stuck error.
   watchHealth();

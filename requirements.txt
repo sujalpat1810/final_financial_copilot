@@ -1,27 +1,31 @@
 # ── Web framework ─────────────────────────────────────────────────────────────
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
-python-multipart>=0.0.9      # FastAPI file upload support
+fastapi>=0.141.1
+uvicorn[standard]>=0.52.3
+python-multipart>=0.0.32     # FastAPI file upload support
 
 # ── PDF parsing ───────────────────────────────────────────────────────────────
-pdfplumber>=0.11.0
-pypdf>=4.2.0
+pdfplumber>=0.11.10
+pypdf>=6.16.1
 
 # ── Embeddings + reranking (local, no API key) ────────────────────────────────
-sentence-transformers>=3.0.0
-# sentence-transformers requires PyTorch.
+sentence-transformers>=5.7.0
+# sentence-transformers requires PyTorch, which is deliberately NOT pinned here:
+# the CPU-only build comes from a separate index. This project is verified
+# against torch 2.13.0+cpu on Python 3.11.9.
 #
-# IMPORTANT: PyTorch officially supports Python 3.9–3.12 (not 3.13/3.14 yet).
-# If you are on Python 3.13 or 3.14, install the CPU-only torch wheel first:
+# Install the CPU wheel explicitly before this file to avoid pulling the much
+# larger default (CUDA) build:
 #
-#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #
-# Or use Python 3.11 / 3.12 (recommended) to avoid this constraint.
 # For GPU (CUDA 12.1): pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Python 3.11 or 3.12 is recommended. torch is the binding constraint on the
+# interpreter version in practice — check its own support matrix before moving.
 
 # ── Vector stores ─────────────────────────────────────────────────────────────
-faiss-cpu>=1.8.0             # pure-CPU FAISS — swap for faiss-gpu if you have a GPU
-chromadb>=0.5.0
+faiss-cpu>=1.15.0            # pure-CPU FAISS — swap for faiss-gpu if you have a GPU
+chromadb>=1.5.9
 
 # ── BM25 keyword retrieval ────────────────────────────────────────────────────
 rank-bm25>=0.2.2
@@ -41,18 +45,45 @@ rank-bm25>=0.2.2
 
 # ── Generation backend ───────────────────────────────────────────────────────
 # IMPORTANT: use google-genai (current SDK), NOT google-generativeai (deprecated)
-google-genai>=1.0.0
+google-genai>=2.18.1
 
 # Second backend, selected with GENERATION_PROVIDER=groq. Both are listed because
 # either can be the configured one; whichever is unused is simply never imported,
 # and a missing SDK degrades to an extractive answer rather than failing to start.
-groq>=0.11.0
+groq>=1.6.0
+
+# Third backend, selected with GENERATION_PROVIDER=claude (or automatically when
+# only ANTHROPIC_API_KEY is set). Same degradation rule: no key, no SDK, or a
+# failed call all fall back to an extractive answer rather than an error.
+anthropic>=0.116.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-numpy>=1.26.0
-pydantic>=2.7.0
-python-dotenv>=1.0.0         # load .env automatically
+numpy>=2.4.6                 # 2.x — do not relax below 2.0
+pydantic>=2.13.4
+python-dotenv>=1.2.3         # load .env automatically
+
+# ── Demo dataset generation ──────────────────────────────────────────────────
+fpdf2>=2.8.8                 # writes the synthetic CA dataset PDFs (scripts/make_ca_dataset.py)
 
 # ── Testing ───────────────────────────────────────────────────────────────────
-pytest>=8.0.0
-httpx>=0.27.0                # required by fastapi.testclient
+pytest>=9.1.1
+httpx2>=2.10.0               # starlette.testclient prefers httpx2 and warns
+                             # (StarletteDeprecationWarning) when it falls back to
+                             # plain httpx. httpx itself stays in the tree anyway
+                             # as a transitive dep of chromadb / google-genai / groq.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE ON THE FLOORS ABOVE
+#
+# These are lower bounds, not pins, raised to the versions this project is
+# actually tested against. The previous set had drifted badly: it claimed support
+# for groq>=0.11, google-genai>=1.0, numpy>=1.26, pypdf>=4.2, chromadb>=0.5 and
+# sentence-transformers>=3.0 — every one of those a major version behind what the
+# code now needs. A resolver honouring the old floors could install SDKs whose
+# APIs this code no longer calls correctly, and the failure would surface at
+# runtime rather than at install time.
+#
+# For a byte-exact reproduction of the verified environment:
+#
+#   pip install -r requirements.lock.txt
+# ─────────────────────────────────────────────────────────────────────────────

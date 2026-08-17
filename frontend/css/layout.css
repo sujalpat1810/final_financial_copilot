@@ -65,9 +65,14 @@
 /* ── Source panel ─────────────────────────────────────────────────────────
    A side panel, not a modal: the answer has to stay visible while the source
    is open, or the reader loses what they were checking. */
+/* The source panel is a fixed right-side sheet at shell level, not a child of
+   any one view — citations open it from Ask, Reconcile and Notices alike. It
+   overlays rather than docking; the answer or draft stays visible beneath. */
 .panel{
-  width:var(--panel-w);flex:none;
+  position:fixed;right:0;top:49px;bottom:0;z-index:40;
+  width:var(--panel-w);max-width:92vw;
   background:var(--surface);border-left:1px solid var(--line);
+  box-shadow:-6px 0 24px rgba(15,23,42,.12);
   display:flex;flex-direction:column;min-height:0;
 }
 .panel[hidden]{display:none}

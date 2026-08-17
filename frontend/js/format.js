@@ -124,6 +124,21 @@ export function basisShort(basis) {
 }
 
 /**
+ * Human label for a document type — used on chips and the document list.
+ * An absent doc_type is a stated unknown, mirroring basisLabel's discipline.
+ */
+export function docTypeLabel(docType) {
+  const labels = {
+    invoice: 'Invoice',
+    notice: 'Tax notice',
+    financials: 'Financials',
+    statute: 'Statute',
+    register: 'Register',
+  };
+  return labels[docType] || 'Document';
+}
+
+/**
  * Zero-padded page label, so citations in a list stay visually aligned.
  * A missing page is not padded — `p.00?` reads as a number, `p.?` as an absence.
  */

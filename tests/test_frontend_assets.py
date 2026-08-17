@@ -186,7 +186,7 @@ def test_frontend_is_mounted_without_shadowing_the_api():
 
     index = client.get("/app/")
     assert index.status_code == 200
-    assert "Financial Copilot" in index.text
+    assert "Practice Copilot" in index.text
 
     for name in CSS_FILES:
         assert client.get(f"/app/css/{name}").status_code == 200

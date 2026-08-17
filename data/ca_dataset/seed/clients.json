@@ -1,0 +1,16 @@
+[
+  {
+    "client_id": "mehta",
+    "name": "Mehta Textiles Pvt Ltd",
+    "gstin": "27AAECM1201F1Z3",
+    "pan": "AAECM1201F",
+    "state_code": "27"
+  },
+  {
+    "client_id": "sharma",
+    "name": "Sharma Electronics Pvt Ltd",
+    "gstin": "07AAECS4521K1ZB",
+    "pan": "AAECS4521K",
+    "state_code": "07"
+  }
+]

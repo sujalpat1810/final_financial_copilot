@@ -14,6 +14,19 @@ from pydantic import BaseModel, Field
 
 # ── Chunk / retrieval primitives ──────────────────────────────────────────────
 
+# What a document of each type is called in its provenance line — the one line
+# of natural language retrieval matches on.  Unknown/absent doc_type falls back
+# to "annual report", which keeps every pre-CA document's indexed text (and
+# therefore its measured ranking behaviour) byte-identical.
+_DOC_TYPE_NOUN = {
+    "invoice": "invoice",
+    "notice": "tax notice",
+    "financials": "financial statements",
+    "statute": "statute extract",
+    "register": "register",
+}
+
+
 class ChunkMetadata(BaseModel):
     chunk_id: str
     doc_id: str
@@ -27,8 +40,23 @@ class ChunkMetadata(BaseModel):
     # detected.  Detection was tried and removed: the first four-digit year on a
     # page is meaningless in a report full of comparative columns, and taking the
     # most common year across 300 pages is a lottery.
-    entity: str | None = None        # e.g. "Infosys"
+    entity: str | None = None        # e.g. "Infosys" or "CGST Act"
     fiscal_year: str | None = None   # e.g. "FY2024-25"
+
+    # ── CA-practice dimensions ────────────────────────────────────────────────
+    # client: whose engagement this document belongs to.  None for firm-level
+    # knowledge (statutes, circulars) that isn't any client's document.
+    # Operator-supplied at ingest, same rule as entity.
+    client: str | None = None        # e.g. "Mehta Textiles Pvt Ltd"
+    # doc_type: invoice | notice | financials | statute | register | other.
+    # Drives retrieval pinning (e.g. notice replies retrieve statutes only) and
+    # the UI's source-class labels, so it is deterministic metadata, never
+    # LLM-asserted.
+    doc_type: str | None = None
+    # act_version: which Act's numbering a statute extract uses — "1961" or
+    # "2025" for income-tax material.  None for everything that isn't
+    # version-sensitive.  Lets one question be answered under each Act.
+    act_version: str | None = None
 
     # Which set of financial statements this chunk's page belongs to.  None means
     # undetermined — see app/basis.py.  Undetermined qualifies the answer
@@ -46,10 +74,19 @@ class ChunkMetadata(BaseModel):
         inventing a description for it would both misdescribe the page and let it
         compete with the real statements for a query that names a basis.
         """
-        parts = [p for p in (self.entity, self.fiscal_year) if p]
+        parts: list[str] = []
+        for p in (self.client, self.entity, self.fiscal_year):
+            # client and entity are often the same string for client documents;
+            # "Mehta Textiles Pvt Ltd Mehta Textiles Pvt Ltd invoice" would be
+            # noise in the exact text the embedder and reranker score.
+            if p and p not in parts:
+                parts.append(p)
         if not parts:
             return ""
-        head = " ".join(parts) + " annual report"
+        noun = _DOC_TYPE_NOUN.get(self.doc_type or "", "annual report")
+        head = " ".join(parts) + f" {noun}"
+        if self.act_version:
+            head += f", {self.act_version} Act numbering"
         if self.basis:
             head += f", {self.basis} financial statements"
         return f"{head}, page {self.page_number}."
@@ -118,6 +155,21 @@ class QueryRequest(BaseModel):
     section_type: str | None = Field(None, description="e.g. 'balance sheet', 'risk factors'")
     top_n: int | None = Field(None, ge=1, le=20)
 
+    # ── CA-practice filters — same equality semantics as the two above ────────
+    client: str | None = Field(None, description="restrict to one client's documents")
+    doc_type: str | None = Field(None, description="invoice | notice | financials | statute | register")
+    act_version: str | None = Field(None, description='"1961" or "2025" for income-tax material')
+
+    def retrieval_filters(self) -> dict[str, str | None]:
+        """The metadata-equality filters, shaped for HybridRetriever.retrieve."""
+        return {
+            "doc_name": self.doc_name,
+            "fiscal_year": self.fiscal_year,
+            "client": self.client,
+            "doc_type": self.doc_type,
+            "act_version": self.act_version,
+        }
+
 
 class SourceCitation(BaseModel):
     doc_name: str
@@ -140,6 +192,13 @@ class SourceCitation(BaseModel):
     # undetermined rather than resolving it.
     entity: str | None = None
     basis: str | None = None
+    # Client engagement + document type, carried for the same reason as entity:
+    # a figure or quote is never shown without saying whose document it came
+    # from and what kind of document that was.  doc_type also drives the UI's
+    # source-class label ([Statute] vs [Client document]) deterministically.
+    client: str | None = None
+    doc_type: str | None = None
+    act_version: str | None = None
 
     # ── Scores ────────────────────────────────────────────────────────────────
     # rerank_score is the raw cross-encoder logit (roughly -11..+11).
@@ -187,6 +246,9 @@ class DocumentInfo(BaseModel):
     fiscal_year: str | None
     ingested_at: str   # ISO timestamp
     entity: str | None = None
+    client: str | None = None
+    doc_type: str | None = None
+    act_version: str | None = None
     # Page counts per detected basis — lets the UI show what was found without
     # re-scanning, and makes a detection failure visible rather than silent.
     standalone_pages: int = 0
@@ -215,3 +277,124 @@ class HealthResponse(BaseModel):
     # confidentiality-conscious firms before there is a good answer ready.
     # The model name stays in config for debugging.
     generation_available: bool
+
+
+# ── Reconciliation (feature 05/06) ───────────────────────────────────────────
+# These models exist for the wire contract: routes_recon returns dicts shaped
+# exactly like them, and tests/test_api_contract.py holds the frontend's field
+# reads against their field names — the same drift guard the Q&A surface has.
+
+class ReconChecks(BaseModel):
+    """Deterministic verification counts behind the UI badges."""
+    gstin_valid_books: int = 0
+    gstin_total_books: int = 0
+    gstin_valid_2b: int = 0
+    gstin_total_2b: int = 0
+    tax_split_ok: int = 0
+    tax_split_total: int = 0
+
+
+class ReconStats(BaseModel):
+    books_rows: int = 0
+    gstr2b_rows: int = 0
+    exact_matches: int = 0
+    amendment_resolved: int = 0
+    amendments_superseded: int = 0
+    fuzzy_matches: int = 0
+    exceptions_total: int = 0
+    buckets: dict[str, int] = {}
+    itc_at_risk: float = 0.0
+    checks: ReconChecks | None = None
+
+
+class BooksRow(BaseModel):
+    """One purchase-register row as the reconciliation saw it."""
+    invoice_no: str | None = None
+    invoice_date: str | None = None
+    vendor_name: str | None = None
+    vendor_gstin: str | None = None
+    taxable_value: float | None = None
+    cgst: float | None = None
+    sgst: float | None = None
+    igst: float | None = None
+    total: float | None = None
+
+
+class Gstr2bRow(BaseModel):
+    """One GSTR-2B row as the reconciliation saw it."""
+    invoice_no: str | None = None
+    invoice_date: str | None = None
+    trade_name: str | None = None
+    supplier_gstin: str | None = None
+    taxable_value: float | None = None
+    cgst: float | None = None
+    sgst: float | None = None
+    igst: float | None = None
+    invoice_value: float | None = None
+    doc_kind: str | None = None
+    original_invoice_no: str | None = None
+
+
+class ReconException(BaseModel):
+    exc_id: int
+    run_id: str
+    bucket: str
+    books_row: BooksRow | None = None
+    g2b_row: Gstr2bRow | None = None
+    delta: dict[str, Any] = {}
+    llm_explanation: str | None = None
+    llm_model: str | None = None
+    status: str = "open"
+
+
+class ReconRunInfo(BaseModel):
+    run_id: str
+    client_id: str
+    period: str
+    status: str
+    started_at: str
+    finished_at: str | None = None
+    stats: ReconStats | None = None
+    log_path: str | None = None
+
+
+class ClientRecord(BaseModel):
+    client_id: str
+    name: str
+    gstin: str | None = None
+    pan: str | None = None
+    state_code: str | None = None
+
+
+# ── Notice casework (feature 07) ─────────────────────────────────────────────
+
+class NoticeDiscrepancy(BaseModel):
+    """A notice's extracted particulars — read off the notice, never invented."""
+    notice_type: str | None = None
+    reference_no: str | None = None
+    gstin: str | None = None
+    period: str | None = None
+    alleged_discrepancy: str | None = None
+    amount: float | None = None
+    sections_cited: list[str] = []
+    reply_form: str | None = None
+    reply_due_days: int | None = None
+    extraction: str | None = None       # "generated" | "regex"
+
+
+class NoticeReply(BaseModel):
+    reply_id: int
+    notice_doc_id: str
+    discrepancy: NoticeDiscrepancy | None = None
+    draft_md: str
+    sources: list[SourceCitation] = []
+    model: str | None = None
+    prompt_version: str | None = None
+    status: str = "draft"
+    created_at: str | None = None
+
+
+class NoticeListItem(DocumentInfo):
+    """A notice document plus its latest reply's state, for the picker."""
+    latest_reply_id: int | None = None
+    latest_reply_status: str | None = None

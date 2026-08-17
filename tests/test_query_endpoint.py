@@ -89,7 +89,7 @@ def _install(monkeypatch, results):
 def _generation_spy(monkeypatch):
     calls = []
 
-    def spy(question, chunks):
+    def spy(question, chunks, task="default"):
         calls.append(question)
         return "generated answer [Page 276]", "generated"
 
