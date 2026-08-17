@@ -1,6 +1,6 @@
 # Feature 05 — Reconciliation engine (backend vertical)
 
-**Branch:** `feat/recon-engine` · **Depends on:** 02 · **Status:** pending
+**Branch:** `feat/recon-engine` · **Depends on:** 02 · **Status:** done
 
 ## Goal
 
@@ -73,4 +73,18 @@ totals_ok: n/N}` + per-exception check results in `delta_json`.
 
 ## Handoff notes
 
-_(fill at session end)_
+- SSE events from POST /recon/run: `stage` events {run_id, stage, state, counts?}
+  with stages load/match/classify/explain, then `done` {run_id, stats} or `error`.
+  Same frame format as /query/stream — api.js parser reusable.
+- Endpoints: POST /recon/run · GET /recon/runs[?client_id] · GET /recon/runs/{id} ·
+  GET /recon/runs/{id}/exceptions · GET /recon/runs/{id}/log (JSONL download) ·
+  POST /recon/exceptions/{id}/decision {action: accepted|corrected|rejected, note} ·
+  GET /recon/clients.
+- stats.checks carries badge numbers: gstin_valid_books/total, gstin_valid_2b/total,
+  tax_split_ok/total. stats.buckets has the 5 bucket counts; stats.itc_at_risk.
+- Exception shape: {exc_id, bucket, books_row, g2b_row, delta, llm_explanation,
+  llm_model, status}.
+- decide_reply/create_reply already in structured.py for feature 07.
+- cfg.ca_db_path (data/ca_demo.db); seeding runs in lifespan, idempotent.
+- Recon endpoint tests share one module-scoped TestClient (model load ~20s once).
+- 388 tests green.
