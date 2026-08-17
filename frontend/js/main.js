@@ -198,6 +198,9 @@ const SEEDS = [
   { q: "What was Mehta Textiles' revenue in FY2024-25?" },
   { q: 'How should a taxpayer respond to an ASMT-10 notice?' },
   { q: 'When can proceedings under section 73 or 74 be initiated?' },
+  { q: 'When is a tax audit of business accounts required?',
+    compare: true,
+    trap: 'Try with "Compare 1961 ↔ 2025 Act" on — the same provision under both numbering systems' },
   // Marked so it reads as deliberate rather than careless. The tooltip
   // describes the question from the reader's side, not as a backstage note.
   { q: "What was Gupta Traders' turnover last year?", trap: 'A client whose documents are not indexed' },
@@ -214,6 +217,7 @@ function renderSeeds() {
     button.addEventListener('click', () => {
       const input = el('queryInput');
       input.value = SEEDS[i].q;
+      if (SEEDS[i].compare) el('compareActs').checked = true;
       resizeInput();
       updateAskEnabled();
       input.focus();
@@ -261,6 +265,11 @@ async function submitQuery() {
   state.busy = true;
   updateAskEnabled();
   hideWelcome();
+
+  if (el('compareActs')?.checked) {
+    await submitCompare(question);
+    return;
+  }
 
   const stream = el('streamInner');
   // renderPending drives a stage/elapsed ticker, so it hands back a stop() that
@@ -363,6 +372,69 @@ async function submitQuery() {
     state.busy = false;
     updateAskEnabled();
     scrollToLatest();
+    input.focus();
+  }
+}
+
+/**
+ * The dual-Act beat: the same question answered twice, once per Act version,
+ * rendered side by side. Two SEQUENTIAL blocking queries — free-tier rate
+ * limits make parallel calls a risk the demo does not need, and the second
+ * column appearing a few seconds after the first reads fine.
+ *
+ * Each column is metadata-pinned: act_version filters retrieval to that Act's
+ * extracts, and the server picks the dual_act prompt from the same field, so
+ * a column structurally cannot cite the other Act.
+ */
+async function submitCompare(question) {
+  const stream = el('streamInner');
+  const wrap = document.createElement('div');
+  wrap.className = 'compare-block';
+  wrap.innerHTML = `
+    <h2 class="q">${escapeHtml(question)}</h2>
+    <div class="compare-grid">
+      <div class="compare-col" data-act="1961">
+        <div class="compare-hd">Income-tax Act, 1961 <span class="compare-note">AY 2026-27 filings</span></div>
+        <div class="compare-body"><div class="compare-wait">Answering under the 1961 Act…</div></div>
+      </div>
+      <div class="compare-col" data-act="2025">
+        <div class="compare-hd">Income-tax Act, 2025 <span class="compare-note">Tax Year 2026-27 onwards</span></div>
+        <div class="compare-body"><div class="compare-wait">Waiting…</div></div>
+      </div>
+    </div>`;
+  stream.appendChild(wrap);
+  scrollToLatest();
+
+  const input = el('queryInput');
+  input.value = '';
+  resizeInput();
+
+  const rememberSources = (sources) => {
+    for (const source of sources || []) {
+      if (source.chunk_id) state.sourcesByChunkId.set(source.chunk_id, source);
+    }
+  };
+
+  try {
+    for (const act of ['1961', '2025']) {
+      const body = wrap.querySelector(`.compare-col[data-act="${act}"] .compare-body`);
+      body.innerHTML = `<div class="compare-wait">Answering under the ${act} Act…</div>`;
+      try {
+        const response = await api.query({ question, actVersion: act });
+        rememberSources(response.sources);
+        body.innerHTML = '';
+        renderResponse(body, { ...response, question: '' },
+          { openableDocIds: openableDocIds() });
+        // The per-column card repeats an empty question heading; drop it.
+        body.querySelector('.q')?.remove();
+      } catch (e) {
+        body.innerHTML = `<div class="compare-wait">${escapeHtml(e.message)}</div>`;
+      }
+      scrollToLatest();
+    }
+  } finally {
+    state.busy = false;
+    updateAskEnabled();
     input.focus();
   }
 }
