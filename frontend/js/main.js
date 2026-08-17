@@ -630,6 +630,11 @@ function initTabs() {
     Object.entries(views).forEach(([name, view]) => {
       if (view) view.hidden = name !== target;
     });
+    // The source panel is a fixed overlay shared by all views; left open
+    // across a switch it hangs over the new view's controls (and blocked a
+    // button outright in smoke testing). Close it on every switch.
+    const panel = el('panel');
+    if (panel && !panel.hidden) el('panelClose')?.click();
     document.dispatchEvent(new CustomEvent('viewshown', { detail: { view: target } }));
   });
 }
