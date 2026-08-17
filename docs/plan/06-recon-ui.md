@@ -1,6 +1,6 @@
 # Feature 06 — Reconciliation UI + agent trace
 
-**Branch:** `feat/recon-ui` · **Depends on:** 04 (tab shell), 05 (API) · **Status:** pending
+**Branch:** `feat/recon-ui` · **Depends on:** 04, 05 · **Status:** done
 
 ## Goal
 
@@ -60,4 +60,14 @@ expandable row). Record cuts in Handoff notes.
 
 ## Handoff notes
 
-_(fill at session end)_
+- trace.js exports createTrace(container) → {onStage, done, fail}; STAGE_LABELS
+  already includes extract/retrieve/draft for the Notices flow — feature 07 just
+  streams stages with those keys.
+- api.js gained generic streamSSE(path, body, onEvent, {timeoutMs}) — use it for
+  /notices/{id}/analyze too.
+- All recon payload fields have wire models in models.py registered with the
+  contract test — do the same for casework responses.
+- "Correct" action kept (no cut needed).
+- Browser-verified via Playwright incl. an accept decision and log download.
+- Fixed en route: bucket_meaning now travels with the explain payload (model had
+  misexplained the duplicate as books-only).
