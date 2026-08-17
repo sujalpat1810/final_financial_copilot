@@ -277,3 +277,95 @@ export function ingest({ file, entity, fiscalYear, docName = '',
 export function documentFileUrl(docId) {
   return apiUrl(`/documents/${docId}/file`);
 }
+
+// ── Reconciliation (feature 06) ────────────────────────────────────────────────
+
+/**
+ * Generic SSE POST — the same frame parsing queryStream does, for any endpoint
+ * that speaks the meta/delta/done contract. onEvent(name, payload) fires per
+ * frame; an `error` frame throws ApiError so callers get one failure path.
+ */
+export async function streamSSE(path, body, onEvent, { timeoutMs = 180000 } = {}) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch {
+    clearTimeout(timer);
+    throw new ApiError(timedOut
+      ? 'The service did not respond in time.'
+      : 'Cannot reach the service. Is it running?', timedOut ? 408 : 0);
+  }
+
+  if (!response.ok || !response.body) {
+    clearTimeout(timer);
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const parsed = await response.json();
+      if (parsed?.detail) detail = parsed.detail;
+    } catch { /* keep the status text */ }
+    throw new ApiError(detail, response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() ?? '';
+      for (const raw of events) {
+        let name = 'message';
+        let data = '';
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event: ')) name = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data += line.slice(6);
+        }
+        if (!data) continue;
+        let payload;
+        try { payload = JSON.parse(data); } catch { continue; }
+        if (name === 'error') throw new ApiError(payload.message || 'Run failed.', 500);
+        onEvent?.(name, payload);
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    reader.cancel().catch(() => {});
+  }
+}
+
+/** Run a reconciliation; onEvent receives ('stage'|'done', payload). */
+export function runRecon({ clientId, period }, onEvent) {
+  return streamSSE('/recon/run', { client_id: clientId, period }, onEvent);
+}
+
+export function reconClients() { return request('/recon/clients'); }
+export function reconRuns() { return request('/recon/runs'); }
+export function reconRunDetail(runId) {
+  return request(`/recon/runs/${encodeURIComponent(runId)}`);
+}
+export function reconExceptions(runId) {
+  return request(`/recon/runs/${encodeURIComponent(runId)}/exceptions`);
+}
+export function reconDecide(excId, action, note) {
+  return request(`/recon/exceptions/${encodeURIComponent(excId)}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, note: note || null }),
+  });
+}
+/** URL for the run-log download link — served as a file, not fetched here. */
+export function reconLogUrl(runId) {
+  return apiUrl(`/recon/runs/${encodeURIComponent(runId)}/log`);
+}

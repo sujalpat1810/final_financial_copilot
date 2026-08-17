@@ -85,6 +85,13 @@ def _explain_exception(exc: dict) -> tuple[str, str]:
 
     payload = json.dumps({
         "bucket": exc["bucket"],
+        # The bucket's factual meaning goes in with the data. Without it the
+        # model must infer the classification from the row shapes and gets it
+        # wrong at the edges — a duplicate also has g2b_row null, and was
+        # observed explained as "missing from GSTR-2B". The classification is
+        # deterministic; the model's job is the practice-language explanation
+        # of it, not a second guess at it.
+        "bucket_meaning": _deterministic_explanation(exc),
         "books_row": exc.get("books_row"),
         "gstr2b_row": exc.get("g2b_row"),
         "delta": exc.get("delta"),

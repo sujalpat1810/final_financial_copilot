@@ -454,3 +454,109 @@
 /* The hidden attribute must beat .row's display:flex — without this, switching
    tabs would stack all three views on top of each other. */
 .view[hidden]{display:none !important}
+
+/* ── Reconciliation workspace (feature 06) ──────────────────────────────────
+   Colours are existing measured tokens only. */
+
+.recon{display:block}
+.recon-results{margin-top:4px}
+.recon-trace{margin-bottom:0}
+.recon-head h1{font-size:19px;margin:0 0 4px}
+.recon-sub{color:var(--ink-2);font-size:13px;margin:0 0 18px}
+
+.recon-controls{
+  display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;
+  padding:14px;border:1px solid var(--line);border-radius:10px;
+  background:var(--surface);margin-bottom:16px;
+}
+.recon-controls .field{margin:0;min-width:200px}
+
+/* Agent trace — every line is a stage the backend actually emitted. */
+.trace{list-style:none;margin:0 0 16px;padding:12px 14px;
+  border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.trace-step{display:flex;align-items:center;gap:10px;padding:5px 0;
+  font-size:13px;color:var(--ink-2)}
+.trace-marker{width:9px;height:9px;border-radius:50%;flex:none;
+  border:2px solid var(--line-control);background:transparent}
+.trace-step[data-state="running"] .trace-marker{
+  border-color:var(--accent);background:var(--accent-wash)}
+.trace-step[data-state="running"] .trace-label{color:var(--ink-1);font-weight:600}
+.trace-step[data-state="done"] .trace-marker{
+  border-color:var(--ok);background:var(--ok)}
+.trace-step[data-state="done"] .trace-label{color:var(--ink-1)}
+.trace-step[data-state="error"] .trace-marker{
+  border-color:var(--stop);background:var(--stop)}
+.trace-step[data-state="error"] .trace-label{color:var(--stop);font-weight:600}
+.trace-detail{margin-left:auto;color:var(--ink-3);font-size:12px}
+
+/* Verification badges — deterministic facts, not confidence vibes. */
+.recon-badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.vbadge{display:inline-flex;align-items:center;gap:6px;
+  font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:7px;
+  border:1px solid var(--line)}
+.vbadge.ok{color:var(--ok);background:var(--ok-wash);border-color:var(--ok-line)}
+.vbadge.warn{color:var(--warn);background:var(--warn-wash);border-color:var(--warn-line)}
+
+/* Bucket tabs over the exceptions table. */
+.bucket-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}
+.bucket-tab{appearance:none;border:1px solid var(--line-control);
+  background:var(--surface);color:var(--ink-2);font:inherit;font-size:12.5px;
+  padding:5px 10px;border-radius:7px;cursor:pointer}
+.bucket-tab:hover{color:var(--ink-1)}
+.bucket-tab:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.bucket-tab.active{color:var(--accent);background:var(--accent-wash);
+  border-color:var(--accent)}
+.bucket-tab .num{color:var(--ink-3);margin-left:2px}
+.bucket-tab.active .num{color:var(--accent)}
+
+/* Exceptions table. */
+.exc-table-wrap{border:1px solid var(--line);border-radius:10px;overflow:auto;
+  background:var(--surface)}
+.exc-table{width:100%;border-collapse:collapse;font-size:13px}
+.exc-table th{position:sticky;top:0;background:var(--surface-accent);
+  color:var(--ink-2);font-size:11.5px;text-transform:uppercase;
+  letter-spacing:.04em;text-align:left;padding:8px 12px;
+  border-bottom:1px solid var(--line)}
+.exc-table th.num-h{text-align:right}
+.exc-table td{padding:8px 12px;border-bottom:1px solid var(--line);
+  color:var(--ink-1)}
+.exc-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.exc-table tr[data-exc-id]{cursor:pointer}
+.exc-table tr[data-exc-id]:hover td{background:var(--surface-accent)}
+.exc-table tr.open td{background:var(--accent-wash)}
+.exc-table tr[data-exc-id]:focus-visible{outline:2px solid var(--accent);
+  outline-offset:-2px}
+.exc-empty{color:var(--ink-3);text-align:center;padding:20px}
+
+.bucket-chip,.status-chip{display:inline-block;font-size:11px;font-weight:600;
+  padding:2px 8px;border-radius:6px;border:1px solid var(--line-control);
+  color:var(--ink-2);background:var(--surface)}
+.status-chip.s-accepted{color:var(--ok);background:var(--ok-wash);
+  border-color:var(--ok-line)}
+.status-chip.s-rejected{color:var(--stop);background:#fdecec;border-color:#f2c4c4}
+.status-chip.s-corrected{color:var(--warn);background:var(--warn-wash);
+  border-color:var(--warn-line)}
+
+/* Drawer — one exception in full. */
+.exc-drawer{margin-top:12px;border:1px solid var(--line);border-radius:10px;
+  background:var(--surface);padding:16px}
+.drawer-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:900px){.drawer-grid{grid-template-columns:1fr}}
+.drawer-h{font-size:12px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink-2);margin:0 0 8px}
+.cmp-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.cmp-table th{color:var(--ink-2);font-weight:600;text-align:left;
+  padding:4px 8px;border-bottom:1px solid var(--line)}
+.cmp-table td{padding:4px 8px;border-bottom:1px solid var(--line);
+  color:var(--ink-1)}
+.cmp-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.cmp-table tr.differs td{background:var(--warn-wash);font-weight:600}
+.drawer-explain{font-size:13px;color:var(--ink-1);line-height:1.55;
+  white-space:pre-line;margin:0 0 12px}
+.src-tag{font-size:10.5px;color:var(--ink-3);font-weight:500;
+  text-transform:none;letter-spacing:0}
+.drawer-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.drawer-actions input{flex:1;min-width:160px;border:1px solid var(--line-control);
+  border-radius:7px;padding:6px 10px;font:inherit;font-size:13px;
+  background:var(--surface);color:var(--ink-1)}
+.drawer-decided{font-size:13px;color:var(--ok);margin:0}

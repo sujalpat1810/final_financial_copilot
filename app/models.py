@@ -277,3 +277,90 @@ class HealthResponse(BaseModel):
     # confidentiality-conscious firms before there is a good answer ready.
     # The model name stays in config for debugging.
     generation_available: bool
+
+
+# ── Reconciliation (feature 05/06) ───────────────────────────────────────────
+# These models exist for the wire contract: routes_recon returns dicts shaped
+# exactly like them, and tests/test_api_contract.py holds the frontend's field
+# reads against their field names — the same drift guard the Q&A surface has.
+
+class ReconChecks(BaseModel):
+    """Deterministic verification counts behind the UI badges."""
+    gstin_valid_books: int = 0
+    gstin_total_books: int = 0
+    gstin_valid_2b: int = 0
+    gstin_total_2b: int = 0
+    tax_split_ok: int = 0
+    tax_split_total: int = 0
+
+
+class ReconStats(BaseModel):
+    books_rows: int = 0
+    gstr2b_rows: int = 0
+    exact_matches: int = 0
+    amendment_resolved: int = 0
+    amendments_superseded: int = 0
+    fuzzy_matches: int = 0
+    exceptions_total: int = 0
+    buckets: dict[str, int] = {}
+    itc_at_risk: float = 0.0
+    checks: ReconChecks | None = None
+
+
+class BooksRow(BaseModel):
+    """One purchase-register row as the reconciliation saw it."""
+    invoice_no: str | None = None
+    invoice_date: str | None = None
+    vendor_name: str | None = None
+    vendor_gstin: str | None = None
+    taxable_value: float | None = None
+    cgst: float | None = None
+    sgst: float | None = None
+    igst: float | None = None
+    total: float | None = None
+
+
+class Gstr2bRow(BaseModel):
+    """One GSTR-2B row as the reconciliation saw it."""
+    invoice_no: str | None = None
+    invoice_date: str | None = None
+    trade_name: str | None = None
+    supplier_gstin: str | None = None
+    taxable_value: float | None = None
+    cgst: float | None = None
+    sgst: float | None = None
+    igst: float | None = None
+    invoice_value: float | None = None
+    doc_kind: str | None = None
+    original_invoice_no: str | None = None
+
+
+class ReconException(BaseModel):
+    exc_id: int
+    run_id: str
+    bucket: str
+    books_row: BooksRow | None = None
+    g2b_row: Gstr2bRow | None = None
+    delta: dict[str, Any] = {}
+    llm_explanation: str | None = None
+    llm_model: str | None = None
+    status: str = "open"
+
+
+class ReconRunInfo(BaseModel):
+    run_id: str
+    client_id: str
+    period: str
+    status: str
+    started_at: str
+    finished_at: str | None = None
+    stats: ReconStats | None = None
+    log_path: str | None = None
+
+
+class ClientRecord(BaseModel):
+    client_id: str
+    name: str
+    gstin: str | None = None
+    pan: str | None = None
+    state_code: str | None = None

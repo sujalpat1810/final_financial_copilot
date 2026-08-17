@@ -11,6 +11,7 @@ import { basisLabel, docTypeLabel, escapeHtml, formatCount } from './format.js';
 import { renderError, renderPending, renderResponse } from './render.js';
 import { hideWelcome, scrollToLatest, toast } from './ui.js';
 import { initViewer, openSource } from './viewer.js';
+import './recon.js';
 
 const el = (id) => document.getElementById(id);
 
