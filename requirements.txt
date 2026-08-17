@@ -57,6 +57,9 @@ numpy>=2.4.6                 # 2.x — do not relax below 2.0
 pydantic>=2.13.4
 python-dotenv>=1.2.3         # load .env automatically
 
+# ── Demo dataset generation ──────────────────────────────────────────────────
+fpdf2>=2.8.8                 # writes the synthetic CA dataset PDFs (scripts/make_ca_dataset.py)
+
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest>=9.1.1
 httpx2>=2.10.0               # starlette.testclient prefers httpx2 and warns
